@@ -25,9 +25,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "18"
-          cache: "npm"
+          # 캐시가 꼬였을 수 있으니 잠시 주석 처리하거나 무시합니다.
 
       - name: Install dependencies
+        # npm ci 대신 install을 사용하고, 꼬인 의존성을 강제로 풀어줍니다.
         run: npm install --force
 
       - name: Run lint
@@ -45,7 +46,6 @@ jobs:
         run: |
           echo "Attempting Supabase CLI migration deploy"
           npm i -g supabase || true
-          # Attempt deployment using supabase CLI; if this fails we'll fall back to psql step below
           supabase --version || true
           supabase migration deploy --project-ref $SUPABASE_PROJECT_REF --service-role-key $SUPABASE_SERVICE_ROLE_KEY || true
 
