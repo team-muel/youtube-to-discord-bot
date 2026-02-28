@@ -9,7 +9,7 @@ export const client = new Client({
   ],
 });
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`[Discord Bot] Ready! Logged in as ${client.user?.tag}`);
   logEvent('Bot started successfully', 'info');
 });
