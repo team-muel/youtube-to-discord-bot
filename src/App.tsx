@@ -1,11 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from './config';
 import { Navigation } from './components/Navigation';
 import { Footer } from './components/Footer';
-
-const Landing = lazy(() => import('./pages/Landing').then(mod => ({ default: mod.Landing })));
-const Dashboard = lazy(() => import('./pages/Dashboard').then(mod => ({ default: mod.Dashboard })));
+import { Landing } from './pages/Landing';
+import { Dashboard } from './pages/Dashboard';
 
 interface User {
   id: string;
@@ -59,22 +58,20 @@ export default function App() {
       <div className="flex flex-col min-h-screen bg-zinc-950">
         <Navigation user={user} onLogout={handleLogout} />
         <main className="flex-1">
-          <Suspense fallback={<div className="min-h-[40vh] flex items-center justify-center text-zinc-400">Loading...</div>}>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route 
-                path="/dashboard" 
-                element={
-                  user ? (
-                    <Dashboard user={user} onLogout={handleLogout} />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                } 
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route 
+              path="/dashboard" 
+              element={
+                user ? (
+                  <Dashboard user={user} onLogout={handleLogout} />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              } 
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
         <Footer />
       </div>
