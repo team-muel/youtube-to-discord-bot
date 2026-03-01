@@ -134,7 +134,9 @@ export function startBot(token: string) {
   }
   console.log(`[RENDER_EVENT] BOT_TOKEN_FORMAT jwt_like=${tokenLooksJwtLike}`);
 
-  console.log('[RENDER_EVENT] BOT_INTENTS messageContent=true guildPresences=true');
+  const messageContentEnv = process.env.DISCORD_ENABLE_MESSAGE_CONTENT;
+  const guildPresencesEnv = process.env.DISCORD_ENABLE_GUILD_PRESENCES;
+  console.log(`[RENDER_EVENT] BOT_INTENTS envMessageContent=${messageContentEnv ?? 'undefined'} envGuildPresences=${guildPresencesEnv ?? 'undefined'} effectiveMessageContent=true effectiveGuildPresences=true`);
   console.log('[RENDER_EVENT] BOT_LOGIN_ATTEMPT');
 
   const timeout = setTimeout(() => {

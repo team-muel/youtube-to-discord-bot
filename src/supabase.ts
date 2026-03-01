@@ -3,8 +3,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
-const supabaseKey = (process.env.SUPABASE_ANON_KEY || '').trim();
+const sanitizeEnv = (value?: string) => (value || '').replace(/\s+/g, '');
+
+const supabaseUrl = sanitizeEnv(process.env.SUPABASE_URL);
+const supabaseKey = sanitizeEnv(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 

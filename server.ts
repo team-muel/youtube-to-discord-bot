@@ -639,12 +639,15 @@ interface DiscordGuild {
   }
 
   // Start the Discord Bot if token is in env (accept multiple env var names)
-  const rawToken = process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || '';
-  const token = rawToken.trim();
-  const loginTimeoutMs = Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 30000);
+  const sanitizeEnv = (value?: string) => (value || '').replace(/\s+/g, '');
+  const token = sanitizeEnv(process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN);
+  const loginTimeoutRaw = sanitizeEnv(process.env.DISCORD_LOGIN_TIMEOUT_MS);
+  const loginTimeoutMs = Number(loginTimeoutRaw || '30000');
+  const messageContentEnv = process.env.DISCORD_ENABLE_MESSAGE_CONTENT;
+  const guildPresencesEnv = process.env.DISCORD_ENABLE_GUILD_PRESENCES;
   console.log('DEBUG: Token exists?', !!token, '| Key length:', token?.length || 0);
   console.log(`[RENDER_EVENT] BOT_TOKEN_PRESENT value=${!!token}`);
-  console.log(`[RENDER_EVENT] BOT_ENV_FLAGS messageContent=true guildPresences=true loginTimeoutMs=${loginTimeoutMs}`);
+  console.log(`[RENDER_EVENT] BOT_ENV_FLAGS messageContent=${messageContentEnv ?? 'undefined'} guildPresences=${guildPresencesEnv ?? 'undefined'} loginTimeoutMs=${loginTimeoutMs}`);
 
   // Schedule background job using cron to ensure it keeps running even if errors occur
   // Runs every 10 minutes
