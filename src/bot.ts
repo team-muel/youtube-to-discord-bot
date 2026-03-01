@@ -1,14 +1,20 @@
 import { Client, GatewayIntentBits, ChannelType, ForumChannel, AttachmentBuilder, TextChannel } from 'discord.js';
 import { supabase } from './supabase';
 
+const enableMessageContent = process.env.DISCORD_ENABLE_MESSAGE_CONTENT === 'true';
+const enableGuildPresences = process.env.DISCORD_ENABLE_GUILD_PRESENCES === 'true';
+const loginTimeoutMs = Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 30000);
+
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,
+  GatewayIntentBits.GuildPresences,
+];
+
 // Create a new client instance
 export const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildPresences,
-  ],
+  intents,
 });
 
 client.on('ready', () => {
@@ -21,6 +27,35 @@ client.on('error', (error) => {
   console.error('[DISCORD_ERROR]', error);
   console.error('[Discord Bot] Error:', error);
   logEvent(`Bot error: ${error.message}`, 'error');
+});
+
+client.on('warn', (message) => {
+  console.log(`[RENDER_EVENT] BOT_WARN ${message}`);
+});
+
+client.on('shardError', (error, shardId) => {
+  const errCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code ?? 'unknown') : 'unknown';
+  console.log(`[RENDER_EVENT] BOT_SHARD_ERROR shard=${shardId} code=${errCode}`);
+  console.error('[DISCORD_SHARD_ERROR]', error);
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+  console.log(`[RENDER_EVENT] BOT_SHARD_DISCONNECT shard=${shardId} code=${event.code} reason=${event.reason || 'unknown'}`);
+  if (event.code === 4014) {
+    console.log('[RENDER_EVENT] BOT_INTENTS_DISALLOWED_HINT check Discord Portal privileged intents or disable DISCORD_ENABLE_MESSAGE_CONTENT/DISCORD_ENABLE_GUILD_PRESENCES');
+  }
+});
+
+client.on('shardReconnecting', (shardId) => {
+  console.log(`[RENDER_EVENT] BOT_SHARD_RECONNECTING shard=${shardId}`);
+});
+
+client.on('shardResume', (shardId) => {
+  console.log(`[RENDER_EVENT] BOT_SHARD_RESUME shard=${shardId}`);
+});
+
+client.on('invalidated', () => {
+  console.log('[RENDER_EVENT] BOT_SESSION_INVALIDATED');
 });
 
 // Helper to log events to DB
@@ -94,13 +129,38 @@ export function startBot(token: string) {
     return;
   }
 
+  const normalizedToken = token.trim().replace(/^['\"]|['\"]$/g, '');
+  const tokenLooksJwtLike = normalizedToken.split('.').length === 3;
+  if (normalizedToken.length !== token.length) {
+    console.log('[RENDER_EVENT] BOT_TOKEN_NORMALIZED trimmed_or_unquoted=true');
+  }
+  console.log(`[RENDER_EVENT] BOT_TOKEN_FORMAT jwt_like=${tokenLooksJwtLike}`);
+
+  console.log(`[RENDER_EVENT] BOT_INTENTS messageContent=${enableMessageContent} guildPresences=${enableGuildPresences}`);
   console.log('[RENDER_EVENT] BOT_LOGIN_ATTEMPT');
+
+  const timeout = setTimeout(() => {
+    if (!client.isReady()) {
+      console.log(`[RENDER_EVENT] BOT_LOGIN_TIMEOUT ms=${loginTimeoutMs}`);
+      console.error('[Discord Bot] Login timed out before ready event.');
+    }
+  }, loginTimeoutMs);
   
-  client.login(token).catch((err) => {
-    const errCode = typeof err === 'object' && err && 'code' in err ? String((err as { code?: unknown }).code ?? 'unknown') : 'unknown';
-    const errMessage = err instanceof Error ? err.message : String(err);
-    console.log(`[RENDER_EVENT] BOT_LOGIN_FAILED code=${errCode}`);
-    console.error('[Discord Bot] Failed to login:', err);
-    logEvent(`Login failed: [${errCode}] ${errMessage}`, 'error');
+  client
+    .login(normalizedToken)
+    .then(() => {
+      console.log('[RENDER_EVENT] BOT_LOGIN_PROMISE_RESOLVED');
+    })
+    .catch((err) => {
+      const errCode = typeof err === 'object' && err && 'code' in err ? String((err as { code?: unknown }).code ?? 'unknown') : 'unknown';
+      const errMessage = err instanceof Error ? err.message : String(err);
+      clearTimeout(timeout);
+      console.log(`[RENDER_EVENT] BOT_LOGIN_FAILED code=${errCode}`);
+      console.error('[Discord Bot] Failed to login:', err);
+      logEvent(`Login failed: [${errCode}] ${errMessage}`, 'error');
+    });
+
+  client.once('ready', () => {
+    clearTimeout(timeout);
   });
 }
