@@ -103,6 +103,11 @@ async function runBackgroundJob() {
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const sessionSecret = process.env.SESSION_SECRET;
+
+  if (!sessionSecret) {
+    throw new Error('SESSION_SECRET is required. Refusing to start with an insecure default secret.');
+  }
 
   // Lightweight health check used by Render/Load balancers
   app.get('/health', (_req: Request, res: Response) => {
@@ -161,7 +166,7 @@ async function startServer() {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
-      const decoded = jwt.verify(token, process.env.SESSION_SECRET || 'default_secret') as JwtUser;
+      const decoded = jwt.verify(token, sessionSecret) as JwtUser;
       req.user = decoded;
       next();
     } catch (err) {
@@ -273,7 +278,7 @@ async function startServer() {
 
       const token = jwt.sign(
         jwtPayload,
-        process.env.SESSION_SECRET || 'default_secret',
+        sessionSecret,
         { expiresIn: '7d' }
       );
 
