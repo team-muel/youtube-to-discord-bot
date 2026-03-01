@@ -6,16 +6,19 @@ export const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildPresences,
   ],
 });
 
-client.once('clientReady', () => {
+client.on('ready', () => {
   console.log(`[RENDER_EVENT] BOT_READY tag=${client.user?.tag || 'unknown'}`);
-  console.log(`[Discord Bot] Ready! Logged in as ${client.user?.tag}`);
+  console.log(`✅ [SUCCESS] Logged in as ${client.user?.tag}`);
   logEvent('Bot started successfully', 'info');
 });
 
 client.on('error', (error) => {
+  console.error('[DISCORD_ERROR]', error);
   console.error('[Discord Bot] Error:', error);
   logEvent(`Bot error: ${error.message}`, 'error');
 });
