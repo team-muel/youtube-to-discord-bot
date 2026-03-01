@@ -32,10 +32,13 @@ client.on('error', (error) => {
 });
 
 client.on('warn', (message) => {
+  console.warn(`[DISCORD WARN] ${message}`);
   console.log(`[RENDER_EVENT] BOT_WARN ${message}`);
 });
 
-client.on('debug', console.log);
+client.on('debug', (info) => {
+  console.log(`[DISCORD DEBUG] ${info}`);
+});
 
 client.rest.on('rateLimited', (info) => {
   console.log(`[RENDER_EVENT] BOT_REST_RATE_LIMIT route=${info.route} retryAfter=${info.retryAfter} limit=${info.limit}`);
@@ -146,7 +149,9 @@ export function startBot(token: string) {
 
   const messageContentEnv = process.env.DISCORD_ENABLE_MESSAGE_CONTENT;
   const guildPresencesEnv = process.env.DISCORD_ENABLE_GUILD_PRESENCES;
+  const nodeOptions = process.env.NODE_OPTIONS;
   console.log(`[RENDER_EVENT] BOT_INTENTS envMessageContent=${messageContentEnv ?? 'undefined'} envGuildPresences=${guildPresencesEnv ?? 'undefined'} effectiveMessageContent=true effectiveGuildPresences=true`);
+  console.log(`[RENDER_EVENT] BOT_RUNTIME node=${process.version} platform=${process.platform} nodeOptions=${nodeOptions ?? 'undefined'}`);
 
   const logDnsResolution = (host: string) => {
     lookup(host, { all: true }, (err, addresses) => {
@@ -164,6 +169,44 @@ export function startBot(token: string) {
 
   logDnsResolution('gateway.discord.gg');
   logDnsResolution('discord.com');
+
+  const runHttpPreflight = async () => {
+    console.log('[RENDER_EVENT] BOT_HTTP_PREFLIGHT_START');
+
+    const runCheck = async (name: string, url: string, headers?: Record<string, string>) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: controller.signal,
+        });
+
+        const body = await response.text();
+        const bodyPreview = body.replace(/\s+/g, ' ').slice(0, 200);
+        console.log(`[RENDER_EVENT] BOT_HTTP_PREFLIGHT_RESULT name=${name} status=${response.status} ok=${response.ok}`);
+
+        if (!response.ok) {
+          console.log(`[RENDER_EVENT] BOT_HTTP_PREFLIGHT_BODY name=${name} preview=${bodyPreview || 'empty'}`);
+        }
+      } catch (err: unknown) {
+        const errName = err instanceof Error ? err.name : typeof err;
+        const errMessage = err instanceof Error ? err.message : String(err);
+        console.log(`[RENDER_EVENT] BOT_HTTP_PREFLIGHT_FAILED name=${name} error=${errName}`);
+        console.error(`[Discord Bot] HTTP preflight failed for ${name}:`, errMessage);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    await runCheck('gateway', 'https://discord.com/api/v10/gateway');
+    await runCheck('gateway_bot', 'https://discord.com/api/v10/gateway/bot', {
+      Authorization: `Bot ${normalizedToken}`,
+    });
+
+    console.log('[RENDER_EVENT] BOT_HTTP_PREFLIGHT_DONE');
+  };
 
   let hasRetried = false;
   let attempt = 0;
@@ -233,5 +276,11 @@ export function startBot(token: string) {
     });
   };
 
-  runLoginAttempt();
+  runHttpPreflight()
+    .catch((err) => {
+      console.error('[Discord Bot] Unexpected preflight error:', err);
+    })
+    .finally(() => {
+      runLoginAttempt();
+    });
 }
