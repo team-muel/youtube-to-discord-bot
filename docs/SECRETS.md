@@ -17,6 +17,10 @@
 - `VERCEL_PROJECT_ID` : Vercel 프로젝트 이름 또는 ID (선택)
 - `DISCORD_TOKEN` : Discord 봇 토큰 (서버/워커용)
 - `DISCORD_RECONNECT_DELAY_MS` : Discord 세션 무효화/샤드 단절 시 자동 재접속 지연(ms, 선택)
+- `DISCORD_MANUAL_RECONNECT_COOLDOWN_MS` : `/bot-reconnect` 수동 재연결 명령 최소 간격(ms, 기본 30000, 선택)
+- `DISCORD_BOT_ALERT_WEBHOOK_URL` : 봇 오프라인/복구 경보를 수신할 Discord Webhook URL(선택)
+- `DISCORD_BOT_ALERT_COOLDOWN_MS` : 오프라인 경보 중복 방지 최소 간격(ms, 기본 300000, 선택)
+- `DISCORD_INTERACTION_TTL_MS` : Slash 응답 버튼 인터랙션 유효시간(ms, 기본 300000, 선택)
 - `GEMINI_API_KEY` : Gemini(또는 다른 AI) API 키 (선택)
 - `SESSION_SECRET` : JWT/세션 서명용 랜덤 문자열
 - `RESEARCH_PRESET_ADMIN_USER_IDS` : 리서치 프리셋 업서트 API 접근 허용 Discord 사용자 ID 목록(콤마 구분)

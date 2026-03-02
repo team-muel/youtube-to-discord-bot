@@ -6,15 +6,40 @@ import cron from 'node-cron';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { setDefaultResultOrder } from 'dns';
 import { supabase, isSupabaseConfigured } from './src/supabase';
-import { client, startBot, createForumThread, logEvent, getBotRuntimeStatus } from './src/bot';
+import { client, startBot, createForumThread, logEvent, getBotRuntimeStatus, evaluateBotRuntimeStatus, getBotNextCheckInSec, forceBotReconnect } from './src/bot';
 import { scrapeYouTubePost } from './src/scraper';
 import { getResolvedResearchPreset, isResearchPresetKey, type ResearchPresetKey, type ResolvedResearchPreset } from './src/content/researchContent';
 import { isResolvedResearchPreset } from './src/lib/researchPresetValidation';
+import { getReconnectFailureReason, toReconnectResult } from './src/lib/reconnectTelemetry';
 import { ChannelType } from 'discord.js';
 import { JwtUser, Source, SettingsRow, AuthenticatedRequest } from './src/types';
 import { imageUrlToBase64, truncateText, MAX_SOURCES_PER_GUILD, DEFAULT_PAGE_LIMIT, MAX_LOGS_DISPLAY, getSafeErrorMessage, validateYouTubeUrl } from './src/utils';
 
 setDefaultResultOrder('ipv4first');
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[PROCESS] Unhandled rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[PROCESS] Uncaught exception:', error);
+});
+
+const handleShutdownSignal = (signal: NodeJS.Signals) => {
+  console.log(`[PROCESS] Received ${signal}, shutting down server resources...`);
+  try {
+    if (client.isReady()) {
+      client.destroy();
+    }
+  } catch (error) {
+    console.error('[PROCESS] Failed during Discord client shutdown:', error);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGINT', () => handleShutdownSignal('SIGINT'));
+process.on('SIGTERM', () => handleShutdownSignal('SIGTERM'));
 
 type BenchmarkPayload = Record<string, string | number | boolean | null | undefined>;
 
@@ -24,6 +49,17 @@ type BenchmarkEventRow = {
   payload?: BenchmarkPayload;
   path: string;
   ts: string;
+};
+
+type ReconnectSummary = {
+  attempts: number;
+  total: number;
+  success: number;
+  failed: number;
+  rejected: number;
+  bySource: Array<{ source: string; count: number }>;
+  byReason: Array<{ reason: string; count: number }>;
+  lastResultAt: string | null;
 };
 
 type ResearchPresetSupabaseRow = {
@@ -53,6 +89,8 @@ type ResearchPresetAuditSelectRow = {
 
 const benchmarkMemoryStore = new Map<string, BenchmarkEventRow[]>();
 const BENCHMARK_MEMORY_LIMIT = 2000;
+const BOT_STATUS_VIEW_BENCHMARK_INTERVAL_MS = Number(process.env.BOT_STATUS_VIEW_BENCHMARK_INTERVAL_MS || 60000);
+const botStatusViewBenchmarkLastAt = new Map<string, number>();
 
 const appendBenchmarkMemoryEvents = (userId: string, events: BenchmarkEventRow[]) => {
   const previous = benchmarkMemoryStore.get(userId) || [];
@@ -104,6 +142,68 @@ const appendServerBenchmarkEvent = async ({
 };
 
 const summarizeBenchmarkEvents = (events: BenchmarkEventRow[]) => {
+  const reconnectSourceCounts: Record<string, number> = {};
+  const reconnectReasonCounts: Record<string, number> = {};
+  const reconnectSummary: ReconnectSummary = {
+    attempts: 0,
+    total: 0,
+    success: 0,
+    failed: 0,
+    rejected: 0,
+    bySource: [],
+    byReason: [],
+    lastResultAt: null,
+  };
+
+  const registerReconnectResult = (result: string, source: string, reason: string, ts: string) => {
+    reconnectSummary.total += 1;
+    if (result === 'success') reconnectSummary.success += 1;
+    else if (result === 'failed') reconnectSummary.failed += 1;
+    else if (result === 'rejected') reconnectSummary.rejected += 1;
+
+    reconnectSourceCounts[source] = (reconnectSourceCounts[source] || 0) + 1;
+    reconnectReasonCounts[reason] = (reconnectReasonCounts[reason] || 0) + 1;
+    reconnectSummary.lastResultAt = ts;
+  };
+
+  events.forEach((event) => {
+    if (event.name === 'bot_reconnect_ui_attempt') {
+      reconnectSummary.attempts += 1;
+      reconnectSourceCounts.ui = (reconnectSourceCounts.ui || 0) + 1;
+      return;
+    }
+
+    if (event.name === 'bot_reconnect_ui_success') {
+      registerReconnectResult('success', 'ui', 'OK', event.ts);
+      return;
+    }
+
+    if (event.name === 'bot_reconnect_ui_failed') {
+      const statusValue = String(event.payload?.status || 'UNKNOWN').toUpperCase();
+      registerReconnectResult('failed', 'ui', statusValue, event.ts);
+      return;
+    }
+
+    if (event.name === 'bot_reconnect_api' || event.name === 'research_bot_reconnect_discord') {
+      const resultRaw = String(event.payload?.result || 'unknown').toLowerCase();
+      const result = resultRaw === 'success' || resultRaw === 'failed' || resultRaw === 'rejected' ? resultRaw : 'failed';
+      const source = String(event.payload?.source || (event.name === 'bot_reconnect_api' ? 'api' : 'slash')).toLowerCase();
+      const reason = String(event.payload?.reason || 'UNKNOWN').toUpperCase();
+      registerReconnectResult(result, source, reason, event.ts);
+      return;
+    }
+  });
+
+  reconnectSummary.bySource = Object.entries(reconnectSourceCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([source, count]) => ({ source, count }));
+
+  reconnectSummary.byReason = Object.entries(reconnectReasonCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([reason, count]) => ({ reason, count }));
+
   const eventCounts = events.reduce<Record<string, number>>((acc, event) => {
     acc[event.name] = (acc[event.name] || 0) + 1;
     return acc;
@@ -129,6 +229,7 @@ const summarizeBenchmarkEvents = (events: BenchmarkEventRow[]) => {
     topEvents,
     topRoutes,
     lastEventAt: events[events.length - 1]?.ts || null,
+    reconnect: reconnectSummary,
   };
 };
 
@@ -275,9 +376,12 @@ async function startServer() {
   // Lightweight health check used by Render/Load balancers
   app.get('/health', (_req: Request, res: Response) => {
     const bot = getBotRuntimeStatus();
+    const operational = evaluateBotRuntimeStatus(bot);
     res.status(200).json({
-      status: bot.tokenPresent && !bot.ready ? 'degraded' : 'ok',
+      status: operational.grade === 'healthy' ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
+      uptimeSec: Math.floor(process.uptime()),
+      botStatusGrade: operational.grade,
       bot,
     });
   });
@@ -373,6 +477,79 @@ async function startServer() {
   };
 
   // --- API Routes ---
+
+  app.get('/api/bot/status', requireAuth, requirePresetAdmin, async (req: AuthenticatedRequest, res: Response) => {
+    const bot = getBotRuntimeStatus();
+    const operational = evaluateBotRuntimeStatus(bot);
+    const nextCheckInSec = getBotNextCheckInSec(operational.grade);
+    const nowMs = Date.now();
+    const outageSince = bot.ready
+      ? null
+      : bot.lastDisconnectAt || bot.lastInvalidatedAt || bot.lastLoginErrorAt || bot.lastLoginAttemptAt;
+    const outageDurationMs = outageSince ? Math.max(0, nowMs - Date.parse(outageSince)) : 0;
+
+    const previousAt = botStatusViewBenchmarkLastAt.get(req.user.id) || 0;
+    const shouldTrack = nowMs - previousAt >= Math.max(5000, BOT_STATUS_VIEW_BENCHMARK_INTERVAL_MS);
+    if (shouldTrack) {
+      botStatusViewBenchmarkLastAt.set(req.user.id, nowMs);
+      await appendServerBenchmarkEvent({
+        userId: req.user.id,
+        name: 'bot_status_view',
+        path: '/api/bot/status',
+        payload: {
+          healthy: !bot.tokenPresent || bot.ready,
+          grade: operational.grade,
+          ready: bot.ready,
+          wsStatus: bot.wsStatus,
+          reconnectAttempts: bot.reconnectAttempts,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      healthy: operational.healthy,
+      statusGrade: operational.grade,
+      statusSummary: operational.summary,
+      recommendations: operational.recommendations,
+      nextCheckInSec,
+      outageDurationMs,
+      bot,
+      actor: req.user.id,
+    });
+  });
+
+  app.post('/api/bot/reconnect', requireAuth, requirePresetAdmin, async (req: AuthenticatedRequest, res: Response) => {
+    const reason = String(req.body?.reason || 'api_manual').trim().slice(0, 80) || 'api_manual';
+    const result = await forceBotReconnect(`api:${reason}`);
+    const runtime = getBotRuntimeStatus();
+    const operational = evaluateBotRuntimeStatus(runtime);
+    const failureReason = result.ok ? 'OK' : getReconnectFailureReason(result.message);
+
+    await appendServerBenchmarkEvent({
+      userId: req.user.id,
+      name: 'bot_reconnect_api',
+      path: '/api/bot/reconnect',
+      payload: {
+        ok: result.ok,
+        result: toReconnectResult(result.ok),
+        reason: failureReason,
+        source: 'api',
+        requestReason: reason,
+        grade: operational.grade,
+        reconnectAttempts: runtime.reconnectAttempts,
+      },
+    });
+
+    return res.status(result.ok ? 200 : 429).json({
+      ok: result.ok,
+      message: result.message,
+      statusGrade: operational.grade,
+      statusSummary: operational.summary,
+      recommendations: operational.recommendations,
+      bot: runtime,
+      actor: req.user.id,
+    });
+  });
 
   app.get('/api/research/preset/:presetKey', async (req: Request, res: Response) => {
     const presetKey = String(req.params.presetKey || '').trim();

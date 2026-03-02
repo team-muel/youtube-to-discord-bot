@@ -3,6 +3,9 @@ import { apiFetch } from '../../config';
 import { SurfaceCard } from '../ui/SurfaceCard';
 import { UiButton } from '../ui/UiButton';
 import { type ResearchPresetKey } from '../../content/researchContent';
+import { trackBenchmarkEvent } from '../../lib/benchmarkTracker';
+import { type BotStatusApiResponse } from '../../types/botStatus';
+import { useReconnectBenchmarkSummary } from '../../hooks/useReconnectBenchmarkSummary';
 
 type HistoryRow = {
   id: string;
@@ -19,8 +22,11 @@ const RESTORE_CONFIRM_TTL_MS = 5000;
 const FOCUS_HIGHLIGHT_TTL_MS = 2600;
 const HISTORY_AUTO_REFRESH_MS = 30000;
 const HISTORY_AUTO_REFRESH_BACKOFF_MS = 60000;
+const BOT_STATUS_REFRESH_MS = 15000;
+const BOT_STATUS_REFRESH_BACKOFF_MS = 45000;
 const SYNC_ELAPSED_TICK_MS = 1000;
 const SYNC_STALE_AFTER_MS = 90000;
+const BOT_STATUS_STALE_AFTER_MS = 90000;
 const RECENT_WINDOW_OPTIONS = [10, 30, 60] as const;
 type RecentWindowMinutes = (typeof RECENT_WINDOW_OPTIONS)[number];
 const RECENT_WINDOW_STORAGE_KEY = 'muel_research_history_recent_window_minutes';
@@ -60,6 +66,15 @@ const getSyncErrorReason = (status: number) => {
   if (status === 503) return 'CONFIG';
   if (status >= 500) return 'SERVER';
   return 'REQUEST';
+};
+
+const toBotPollDelayMs = (nextCheckInSec?: number) => {
+  if (!Number.isFinite(nextCheckInSec)) {
+    return BOT_STATUS_REFRESH_MS;
+  }
+
+  const sec = Math.max(10, Math.min(120, Number(nextCheckInSec)));
+  return sec * 1000;
 };
 
 const getActionLabel = (source: string) => {
@@ -181,10 +196,30 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
   const [syncErrorReason, setSyncErrorReason] = useState<string | null>(null);
   const [syncElapsedNow, setSyncElapsedNow] = useState(() => Date.now());
   const [autoRefreshDelayMs, setAutoRefreshDelayMs] = useState(HISTORY_AUTO_REFRESH_MS);
+  const [botStatus, setBotStatus] = useState<BotStatusApiResponse | null>(null);
+  const [botStatusError, setBotStatusError] = useState<string | null>(null);
+  const [lastBotSyncedAt, setLastBotSyncedAt] = useState<string | null>(null);
+  const [botRefreshDelayMs, setBotRefreshDelayMs] = useState(BOT_STATUS_REFRESH_MS);
+  const [botActionMessage, setBotActionMessage] = useState<string | null>(null);
+  const [isBotReconnectPending, setIsBotReconnectPending] = useState(false);
   const rowRefs = useRef<Record<string, HTMLElement | null>>({});
   const isFetchingHistoryRef = useRef(false);
   const autoRefreshDelayRef = useRef(HISTORY_AUTO_REFRESH_MS);
+  const botRefreshDelayRef = useRef(BOT_STATUS_REFRESH_MS);
   const autoJumpHandledRef = useRef(false);
+  const previousBotHealthyRef = useRef<boolean | null>(null);
+  const previousBotStatusErrorRef = useRef<string | null>(null);
+
+  const {
+    summary: benchmarkSummary,
+    errorReason: benchmarkSummaryError,
+    successRate: reconnectSuccessRate,
+    topReasons: topReconnectReasons,
+    topSources: topReconnectSources,
+    lastResultText: reconnectLastResultText,
+    refreshSummary: refreshBenchmarkSummary,
+    isBackoff: isBenchmarkSummaryBackoff,
+  } = useReconnectBenchmarkSummary({ visible, nowMs: syncElapsedNow });
 
   const syncElapsedText = useMemo(() => {
     if (!lastSyncedAt) {
@@ -257,6 +292,132 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
       { restore: 0, upsert: 0, total: 0 },
     );
   }, [recentWindowMinutes, rows]);
+
+  const botSyncElapsedText = useMemo(() => {
+    if (!lastBotSyncedAt) {
+      return '-';
+    }
+
+    const syncedAtMs = Date.parse(lastBotSyncedAt);
+    if (!Number.isFinite(syncedAtMs)) {
+      return '-';
+    }
+
+    return toElapsedText(syncElapsedNow - syncedAtMs);
+  }, [lastBotSyncedAt, syncElapsedNow]);
+
+  const botStatusKind = useMemo(() => {
+    if (!botStatus) {
+      return botStatusError ? 'error' : 'idle';
+    }
+
+    if (botStatusError) {
+      return 'stale';
+    }
+
+    if (!lastBotSyncedAt) {
+      return botStatus.healthy ? 'ok' : 'error';
+    }
+
+    const syncedAtMs = Date.parse(lastBotSyncedAt);
+    if (!Number.isFinite(syncedAtMs)) {
+      return botStatus.healthy ? 'ok' : 'error';
+    }
+
+    if (syncElapsedNow - syncedAtMs > BOT_STATUS_STALE_AFTER_MS) {
+      return 'stale';
+    }
+
+    return botStatus.healthy ? 'ok' : 'error';
+  }, [botStatus, botStatusError, lastBotSyncedAt, syncElapsedNow]);
+
+  const botOutageElapsedText = useMemo(() => {
+    if (!botStatus || botStatus.healthy || !botStatus.outageDurationMs) {
+      return '0s';
+    }
+
+    return toElapsedText(botStatus.outageDurationMs).replace(' ago', '');
+  }, [botStatus]);
+
+  const fetchBotStatus = useCallback(async () => {
+    try {
+      const response = await apiFetch('/api/bot/status');
+      if (response.status === 401 || response.status === 403) {
+        setBotStatusError('FORBIDDEN');
+        botRefreshDelayRef.current = BOT_STATUS_REFRESH_BACKOFF_MS;
+        setBotRefreshDelayMs(BOT_STATUS_REFRESH_BACKOFF_MS);
+        return false;
+      }
+
+      if (!response.ok) {
+        setBotStatusError(getSyncErrorReason(response.status));
+        botRefreshDelayRef.current = BOT_STATUS_REFRESH_BACKOFF_MS;
+        setBotRefreshDelayMs(BOT_STATUS_REFRESH_BACKOFF_MS);
+        return false;
+      }
+
+      const payload = (await response.json()) as BotStatusApiResponse;
+      setBotStatus(payload);
+      setBotStatusError(null);
+      setLastBotSyncedAt(new Date().toISOString());
+      const nextDelayMs = toBotPollDelayMs(payload.nextCheckInSec);
+      botRefreshDelayRef.current = nextDelayMs;
+      setBotRefreshDelayMs(nextDelayMs);
+      return true;
+    } catch {
+      setBotStatusError('NETWORK');
+      botRefreshDelayRef.current = BOT_STATUS_REFRESH_BACKOFF_MS;
+      setBotRefreshDelayMs(BOT_STATUS_REFRESH_BACKOFF_MS);
+      return false;
+    }
+  }, []);
+
+  const triggerBotReconnect = useCallback(async () => {
+    setIsBotReconnectPending(true);
+    setBotActionMessage(null);
+    trackBenchmarkEvent('bot_reconnect_ui_attempt', {
+      presetKey,
+      source: 'studio_panel',
+    });
+    try {
+      const response = await apiFetch('/api/bot/reconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'studio_panel' }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        trackBenchmarkEvent('bot_reconnect_ui_failed', {
+          presetKey,
+          source: 'studio_panel',
+          status: response.status,
+        });
+        setBotActionMessage(payload.message || '봇 재연결 요청에 실패했습니다.');
+        return;
+      }
+
+      trackBenchmarkEvent('bot_reconnect_ui_success', {
+        presetKey,
+        source: 'studio_panel',
+      });
+      setBotActionMessage(payload.message || '봇 재연결 요청을 전송했습니다.');
+      await fetchBotStatus();
+    } catch {
+      trackBenchmarkEvent('bot_reconnect_ui_failed', {
+        presetKey,
+        source: 'studio_panel',
+        status: 'NETWORK',
+      });
+      setBotActionMessage('네트워크 문제로 봇 재연결 요청에 실패했습니다.');
+    } finally {
+      setIsBotReconnectPending(false);
+    }
+  }, [fetchBotStatus, presetKey]);
 
   const fetchHistory = useCallback(async (options?: { silent?: boolean }) => {
     if (isFetchingHistoryRef.current) {
@@ -348,7 +509,8 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
 
   useEffect(() => {
     void fetchHistory();
-  }, [fetchHistory]);
+    void fetchBotStatus();
+  }, [fetchBotStatus, fetchHistory]);
 
   useEffect(() => {
     autoRefreshDelayRef.current = HISTORY_AUTO_REFRESH_MS;
@@ -387,6 +549,42 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
       }
     };
   }, [fetchHistory, restoringRowId, visible]);
+
+  useEffect(() => {
+    botRefreshDelayRef.current = BOT_STATUS_REFRESH_MS;
+    setBotRefreshDelayMs(BOT_STATUS_REFRESH_MS);
+    let timeoutId: number | null = null;
+    let cancelled = false;
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) {
+        return;
+      }
+
+      timeoutId = window.setTimeout(async () => {
+        if (cancelled) {
+          return;
+        }
+
+        if (document.visibilityState !== 'visible' || !visible) {
+          scheduleNext(botRefreshDelayRef.current);
+          return;
+        }
+
+        await fetchBotStatus();
+        scheduleNext(botRefreshDelayRef.current);
+      }, delayMs);
+    };
+
+    scheduleNext(botRefreshDelayRef.current);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [fetchBotStatus, visible]);
 
   useEffect(() => {
     if (!confirmRestoreRowId) {
@@ -468,6 +666,50 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
     setRestoreError('딥링크 이력 항목을 최근 100건 내에서 찾지 못했습니다. 이력 필터를 확인하거나 항목 ID를 다시 확인하세요.');
   }, [initialHistoryId, jumpToHistoryRow, loading, rows]);
 
+  useEffect(() => {
+    if (!botStatus) {
+      return;
+    }
+
+    const currentHealthy = botStatus.healthy;
+    const previousHealthy = previousBotHealthyRef.current;
+    if (previousHealthy === null) {
+      previousBotHealthyRef.current = currentHealthy;
+      return;
+    }
+
+    if (previousHealthy !== currentHealthy) {
+      trackBenchmarkEvent(currentHealthy ? 'bot_status_recovered' : 'bot_status_degraded', {
+        presetKey,
+        wsStatus: botStatus.bot?.wsStatus,
+        reconnectAttempts: botStatus.bot?.reconnectAttempts,
+        outageDurationMs: botStatus.outageDurationMs,
+      });
+    }
+
+    previousBotHealthyRef.current = currentHealthy;
+  }, [botStatus, presetKey]);
+
+  useEffect(() => {
+    const previousError = previousBotStatusErrorRef.current;
+    if (previousError !== botStatusError) {
+      if (botStatusError) {
+        trackBenchmarkEvent('bot_status_poll_error', {
+          presetKey,
+          reason: botStatusError,
+          pollMs: botRefreshDelayMs,
+        });
+      } else if (previousError) {
+        trackBenchmarkEvent('bot_status_poll_recovered', {
+          presetKey,
+          previousReason: previousError,
+          pollMs: botRefreshDelayMs,
+        });
+      }
+      previousBotStatusErrorRef.current = botStatusError;
+    }
+  }, [botRefreshDelayMs, botStatusError, presetKey]);
+
   if (!visible) {
     return null;
   }
@@ -519,11 +761,151 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
                 U {recentSummary.upsert}
               </span>
             </div>
+            <div className="research-admin-summary" aria-label="Reconnect operation summary">
+              <span className="mono-data research-admin-summary-chip" data-kind="total">
+                RECONNECT {benchmarkSummary?.total ?? 0}
+              </span>
+              <span className="mono-data research-admin-summary-chip" data-kind="recent">
+                ATTEMPT {benchmarkSummary?.attempts ?? 0}
+              </span>
+              <span className="mono-data research-admin-summary-chip" data-kind="recent-upsert">
+                SUCCESS {benchmarkSummary?.success ?? 0}
+              </span>
+              <span className="mono-data research-admin-summary-chip" data-kind="restore">
+                FAILED {benchmarkSummary?.failed ?? 0}
+              </span>
+              <span className="mono-data research-admin-summary-chip" data-kind="other">
+                REJECTED {benchmarkSummary?.rejected ?? 0}
+              </span>
+              <span className="mono-data research-admin-summary-chip" data-kind="recent">
+                RATE {reconnectSuccessRate}%
+              </span>
+              <span className="mono-data research-admin-summary-chip" data-kind="recent" title="Last reconnect result timestamp">
+                LAST {reconnectLastResultText}
+              </span>
+              {topReconnectSources.map((sourceItem) => (
+                <span
+                  key={`source-${sourceItem.source}`}
+                  className="mono-data research-admin-summary-chip"
+                  data-kind="recent-upsert"
+                  title="Top reconnect source"
+                >
+                  SRC {sourceItem.source.toUpperCase()} {sourceItem.count}
+                </span>
+              ))}
+              {topReconnectReasons.map((reasonItem) => (
+                <span
+                  key={`reason-${reasonItem.reason}`}
+                  className="mono-data research-admin-summary-chip"
+                  data-kind="other"
+                  title="Top reconnect failure/reject reason"
+                >
+                  REASON {reasonItem.reason} {reasonItem.count}
+                </span>
+              ))}
+              {benchmarkSummaryError ? (
+                <span className="mono-data research-admin-summary-chip" data-kind="other" title="Reconnect benchmark summary fetch error">
+                  RS_ERR {benchmarkSummaryError}
+                </span>
+              ) : null}
+              {isBenchmarkSummaryBackoff ? (
+                <span className="mono-data research-admin-summary-chip" data-kind="other" title="Reconnect summary polling backoff">
+                  RS_BACKOFF
+                </span>
+              ) : null}
+            </div>
           </div>
-          <UiButton size="sm" variant="outline" className="muel-interact" onClick={() => void fetchHistory()}>
+          <UiButton
+            size="sm"
+            variant="outline"
+            className="muel-interact"
+            onClick={() => {
+              void fetchHistory();
+              void fetchBotStatus();
+              void refreshBenchmarkSummary();
+            }}
+          >
             Refresh
           </UiButton>
+          <UiButton
+            size="sm"
+            variant="outline"
+            className="muel-interact"
+            disabled={isBotReconnectPending}
+            onClick={() => {
+              void triggerBotReconnect();
+            }}
+          >
+            {isBotReconnectPending ? 'Reconnecting...' : 'Reconnect Bot'}
+          </UiButton>
         </div>
+
+        <p className="mono-data research-admin-sync" data-kind={botStatusKind}>
+          Bot sync: {lastBotSyncedAt ? new Date(lastBotSyncedAt).toLocaleTimeString('ko-KR') : '-'} ({botSyncElapsedText}) · poll {Math.floor(botRefreshDelayMs / 1000)}s
+          {botStatus ? (
+            <>
+              <span className="research-admin-sync-badge" data-kind={botStatus.healthy ? 'bot-ok' : 'bot-outage'}>
+                {botStatus.statusGrade ? `BOT_${botStatus.statusGrade.toUpperCase()}` : botStatus.healthy ? 'BOT_READY' : 'BOT_DEGRADED'}
+              </span>
+              {typeof botStatus.nextCheckInSec === 'number' ? (
+                <span className="research-admin-sync-badge" data-kind="reason">
+                  NEXT {botStatus.nextCheckInSec}s
+                </span>
+              ) : null}
+              <span className="research-admin-sync-badge" data-kind="reason">
+                WS {botStatus.bot?.wsStatus ?? '-'}
+              </span>
+              {!botStatus.healthy ? (
+                <span className="research-admin-sync-badge" data-kind="reason">
+                  OUTAGE {botOutageElapsedText}
+                </span>
+              ) : null}
+              {(botStatus.bot?.reconnectQueued || (botStatus.bot?.reconnectAttempts || 0) > 0) ? (
+                <span className="research-admin-sync-badge" data-kind="backoff">
+                  RECONNECT {botStatus.bot?.reconnectAttempts ?? 0}
+                </span>
+              ) : null}
+              {botRefreshDelayMs > BOT_STATUS_REFRESH_MS ? (
+                <span className="research-admin-sync-badge" data-kind="backoff">
+                  BACKOFF
+                </span>
+              ) : null}
+              {botStatus.bot?.lastAlertAt ? (
+                <span
+                  className="research-admin-sync-badge"
+                  data-kind="reason"
+                  title={`lastAlertAt=${botStatus.bot.lastAlertAt} reason=${botStatus.bot.lastAlertReason || '-'}`}
+                >
+                  ALERT
+                </span>
+              ) : null}
+              {botStatus.bot?.lastRecoveryAt ? (
+                <span
+                  className="research-admin-sync-badge"
+                  data-kind="bot-ok"
+                  title={`lastRecoveryAt=${botStatus.bot.lastRecoveryAt}`}
+                >
+                  RECOVERY
+                </span>
+              ) : null}
+              {botStatus.bot?.lastLoginError ? (
+                <span className="research-admin-sync-badge" data-kind="reason" title={botStatus.bot.lastLoginError}>
+                  LAST_ERROR
+                </span>
+              ) : null}
+              {botStatus.recommendations?.[0] ? (
+                <span className="research-admin-sync-badge" data-kind="reason" title={botStatus.recommendations[0]}>
+                  ACTION
+                </span>
+              ) : null}
+            </>
+          ) : null}
+          {!botStatus && botStatusError ? (
+            <span className="research-admin-sync-badge" data-kind="reason">
+              {botStatusError}
+            </span>
+          ) : null}
+        </p>
 
         <p className="mono-data research-admin-sync" data-kind={syncDisplayKind}>
           Last synced: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString('ko-KR') : '-'} ({syncElapsedText}) · poll {Math.floor(autoRefreshDelayMs / 1000)}s
@@ -538,6 +920,8 @@ export const ResearchPresetHistoryPanel = ({ presetKey, initialHistoryId = null,
             </span>
           ) : null}
         </p>
+
+        {botActionMessage ? <p className="mono-data research-admin-empty">{botActionMessage}</p> : null}
 
         {loading ? (
           <p className="mono-data research-admin-empty">Loading history...</p>

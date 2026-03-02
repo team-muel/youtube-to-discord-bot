@@ -12,15 +12,22 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
 } from 'discord.js';
 import { lookup, setDefaultResultOrder } from 'node:dns';
 import { randomBytes } from 'node:crypto';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { isResearchPresetKey, type ResolvedResearchPreset } from './content/researchContent';
 import { isResolvedResearchPreset } from './lib/researchPresetValidation';
+import { getReconnectFailureReason, toReconnectResult } from './lib/reconnectTelemetry';
+import { type BotRuntimeStatus, type BotOperationalStatus } from './types/botStatus';
 
 const loginTimeoutMs = Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 30000);
 const reconnectDelayMs = Number(process.env.DISCORD_RECONNECT_DELAY_MS || 8000);
+const manualReconnectCooldownMs = Number(process.env.DISCORD_MANUAL_RECONNECT_COOLDOWN_MS || 30000);
+const interactionTtlMs = Number(process.env.DISCORD_INTERACTION_TTL_MS || 300000);
+const botAlertWebhookUrl = (process.env.DISCORD_BOT_ALERT_WEBHOOK_URL || '').trim();
+const botAlertCooldownMs = Number(process.env.DISCORD_BOT_ALERT_COOLDOWN_MS || 300000);
 
 setDefaultResultOrder('ipv4first');
 console.log('[RENDER_EVENT] DNS_RESULT_ORDER value=ipv4first scope=src_bot');
@@ -37,23 +44,6 @@ export const client = new Client({
   intents,
 });
 
-type BotRuntimeStatus = {
-  started: boolean;
-  ready: boolean;
-  wsStatus: number;
-  tokenPresent: boolean;
-  reconnectQueued: boolean;
-  reconnectAttempts: number;
-  lastReadyAt: string | null;
-  lastLoginAttemptAt: string | null;
-  lastLoginErrorAt: string | null;
-  lastLoginError: string | null;
-  lastDisconnectAt: string | null;
-  lastDisconnectCode: number | null;
-  lastDisconnectReason: string | null;
-  lastInvalidatedAt: string | null;
-};
-
 const botRuntimeStatus: BotRuntimeStatus = {
   started: false,
   ready: false,
@@ -69,14 +59,61 @@ const botRuntimeStatus: BotRuntimeStatus = {
   lastDisconnectCode: null,
   lastDisconnectReason: null,
   lastInvalidatedAt: null,
+  lastAlertAt: null,
+  lastAlertReason: null,
+  lastRecoveryAt: null,
+  lastManualReconnectAt: null,
+  manualReconnectCooldownRemainingSec: 0,
 };
 
 let activeBotToken: string | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let reconnectInFlight = false;
+let lastBotAlertAtMs = 0;
+let lastManualReconnectAtMs = 0;
 
 const updateBotRuntimeWsStatus = () => {
   botRuntimeStatus.wsStatus = client.ws.status;
+};
+
+const getManualReconnectCooldownRemainingSec = () => {
+  const cooldownMs = Math.max(5000, manualReconnectCooldownMs);
+  const remainMs = Math.max(0, cooldownMs - (Date.now() - lastManualReconnectAtMs));
+  return Math.ceil(remainMs / 1000);
+};
+
+const sendBotOperationalAlert = async (reason: string, details: string, level: 'warning' | 'success' = 'warning') => {
+  if (!botAlertWebhookUrl) {
+    return;
+  }
+
+  const now = Date.now();
+  if (level !== 'success' && now - lastBotAlertAtMs < Math.max(10000, botAlertCooldownMs)) {
+    return;
+  }
+
+  if (level !== 'success') {
+    lastBotAlertAtMs = now;
+    botRuntimeStatus.lastAlertAt = new Date(now).toISOString();
+    botRuntimeStatus.lastAlertReason = reason;
+  } else {
+    botRuntimeStatus.lastRecoveryAt = new Date(now).toISOString();
+  }
+
+  const prefix = level === 'success' ? '✅ BOT_RECOVERED' : '⚠️ BOT_OFFLINE';
+  const content = `${prefix} reason=${reason} details=${details} wsStatus=${client.ws.status}`;
+
+  try {
+    await fetch(botAlertWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+  } catch (error) {
+    console.error('[Discord Bot] Failed to send operational alert:', error);
+  }
 };
 
 const scheduleBotReconnect = (reason: string, delayMs = reconnectDelayMs) => {
@@ -130,9 +167,137 @@ const scheduleBotReconnect = (reason: string, delayMs = reconnectDelayMs) => {
 
 export const getBotRuntimeStatus = () => {
   updateBotRuntimeWsStatus();
+  botRuntimeStatus.manualReconnectCooldownRemainingSec = getManualReconnectCooldownRemainingSec();
   return {
     ...botRuntimeStatus,
   };
+};
+
+export const forceBotReconnect = async (reason = 'manual') => {
+  if (!activeBotToken) {
+    return {
+      ok: false,
+      message: '활성 봇 토큰이 없어 재연결을 실행할 수 없습니다.',
+    };
+  }
+
+  const cooldownRemainingSec = getManualReconnectCooldownRemainingSec();
+  if (cooldownRemainingSec > 0) {
+    return {
+      ok: false,
+      message: `수동 재연결 쿨다운이 ${cooldownRemainingSec}초 남아 있습니다.`,
+    };
+  }
+
+  if (reconnectInFlight) {
+    return {
+      ok: false,
+      message: '이미 재연결이 진행 중입니다.',
+    };
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    botRuntimeStatus.reconnectQueued = false;
+  }
+
+  reconnectInFlight = true;
+  lastManualReconnectAtMs = Date.now();
+  botRuntimeStatus.lastManualReconnectAt = new Date(lastManualReconnectAtMs).toISOString();
+  botRuntimeStatus.lastLoginAttemptAt = new Date().toISOString();
+  botRuntimeStatus.reconnectAttempts += 1;
+  botRuntimeStatus.ready = false;
+  updateBotRuntimeWsStatus();
+
+  try {
+    try {
+      client.destroy();
+    } catch {
+      // ignore destroy errors
+    }
+
+    await client.login(activeBotToken);
+    updateBotRuntimeWsStatus();
+
+    return {
+      ok: true,
+      message: `수동 재연결 요청을 수락했습니다. reason=${reason}`,
+    };
+  } catch (error) {
+    const errMessage = error instanceof Error ? error.message : String(error);
+    botRuntimeStatus.lastLoginErrorAt = new Date().toISOString();
+    botRuntimeStatus.lastLoginError = errMessage;
+    botRuntimeStatus.ready = false;
+    updateBotRuntimeWsStatus();
+    scheduleBotReconnect('manual_reconnect_failed', Math.max(5000, reconnectDelayMs));
+
+    return {
+      ok: false,
+      message: `수동 재연결 실패: ${errMessage}`,
+    };
+  } finally {
+    reconnectInFlight = false;
+  }
+};
+
+export const evaluateBotRuntimeStatus = (runtime: BotRuntimeStatus): BotOperationalStatus => {
+  const recommendations: string[] = [];
+
+  if (!runtime.tokenPresent) {
+    recommendations.push('DISCORD_TOKEN 또는 DISCORD_BOT_TOKEN 설정을 확인하세요.');
+  }
+
+  if (runtime.lastDisconnectCode === 4014) {
+    recommendations.push('Discord Portal에서 Message Content/Presence Intent를 활성화하세요.');
+  }
+
+  if (runtime.lastLoginError?.toLowerCase().includes('invalid token')) {
+    recommendations.push('봇 토큰을 재발급하고 배포 환경 시크릿을 교체하세요.');
+  }
+
+  if (runtime.reconnectQueued || runtime.reconnectAttempts > 0) {
+    recommendations.push('네트워크 경로와 Discord Gateway 접근 상태를 확인하세요.');
+  }
+
+  if (runtime.ready) {
+    return {
+      grade: 'healthy',
+      healthy: true,
+      summary: '봇이 정상 연결 상태입니다.',
+      recommendations: recommendations.length ? recommendations.slice(0, 3) : ['현재 즉시 조치 필요 없음'],
+    };
+  }
+
+  if (!runtime.tokenPresent) {
+    return {
+      grade: 'offline',
+      healthy: false,
+      summary: '봇 토큰이 없어 오프라인 상태입니다.',
+      recommendations: recommendations.length ? recommendations.slice(0, 4) : ['봇 토큰을 설정하세요.'],
+    };
+  }
+
+  return {
+    grade: runtime.reconnectQueued || runtime.reconnectAttempts > 0 ? 'degraded' : 'offline',
+    healthy: false,
+    summary: runtime.reconnectQueued
+      ? '봇이 재연결 시도 중입니다.'
+      : '봇 연결이 끊긴 상태입니다.',
+    recommendations: recommendations.length ? recommendations.slice(0, 4) : ['로그인 오류 및 Gateway 연결 상태를 확인하세요.'],
+  };
+};
+
+export const getBotNextCheckInSec = (grade: BotOperationalStatus['grade']) => {
+  if (grade === 'healthy') {
+    return 60;
+  }
+
+  if (grade === 'degraded') {
+    return 30;
+  }
+
+  return 10;
 };
 
 type AuditSource = 'upsert' | 'restore';
@@ -202,19 +367,37 @@ const releasePresetMutationLock = (lockKey: string) => {
 
 const PRESET_RESTORE_BUTTON_PREFIX = 'preset_restore';
 const PRESET_HISTORY_PAGE_BUTTON_PREFIX = 'preset_history_page';
+const BOT_STATUS_REFRESH_BUTTON_PREFIX = 'bot_status_refresh';
 const PRESET_HISTORY_PAGE_SIZE = 5;
 
+const toDurationText = (diffMs: number) => {
+  const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ${totalSeconds % 60}s`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainMinutes = minutes % 60;
+  return `${hours}h ${remainMinutes}m`;
+};
+
 const buildPresetRestoreButtonCustomId = (presetKey: string, historyId: string, requesterUserId: string) => {
-  return `${PRESET_RESTORE_BUTTON_PREFIX}|${presetKey}|${historyId}|${requesterUserId}`;
+  return `${PRESET_RESTORE_BUTTON_PREFIX}|${presetKey}|${historyId}|${requesterUserId}|${Date.now()}`;
 };
 
 const parsePresetRestoreButtonCustomId = (customId: string) => {
-  const [prefix, presetKey, historyId, requesterUserId] = customId.split('|');
+  const [prefix, presetKey, historyId, requesterUserId, issuedAtRaw] = customId.split('|');
   if (prefix !== PRESET_RESTORE_BUTTON_PREFIX) {
     return null;
   }
 
-  if (!presetKey || !historyId || !requesterUserId) {
+  const issuedAt = Number(issuedAtRaw);
+  if (!presetKey || !historyId || !requesterUserId || !Number.isFinite(issuedAt)) {
     return null;
   }
 
@@ -222,22 +405,24 @@ const parsePresetRestoreButtonCustomId = (customId: string) => {
     presetKey,
     historyId,
     requesterUserId,
+    issuedAt,
   };
 };
 
 const buildPresetHistoryPageButtonCustomId = (presetKey: string, requesterUserId: string, pageIndex: number, limit: number) => {
-  return `${PRESET_HISTORY_PAGE_BUTTON_PREFIX}|${presetKey}|${requesterUserId}|${pageIndex}|${limit}`;
+  return `${PRESET_HISTORY_PAGE_BUTTON_PREFIX}|${presetKey}|${requesterUserId}|${pageIndex}|${limit}|${Date.now()}`;
 };
 
 const parsePresetHistoryPageButtonCustomId = (customId: string) => {
-  const [prefix, presetKey, requesterUserId, pageIndexRaw, limitRaw] = customId.split('|');
+  const [prefix, presetKey, requesterUserId, pageIndexRaw, limitRaw, issuedAtRaw] = customId.split('|');
   if (prefix !== PRESET_HISTORY_PAGE_BUTTON_PREFIX) {
     return null;
   }
 
   const pageIndex = Number(pageIndexRaw);
   const limit = Number(limitRaw);
-  if (!presetKey || !requesterUserId || !Number.isInteger(pageIndex) || pageIndex < 0 || !Number.isInteger(limit) || limit < 1) {
+  const issuedAt = Number(issuedAtRaw);
+  if (!presetKey || !requesterUserId || !Number.isInteger(pageIndex) || pageIndex < 0 || !Number.isInteger(limit) || limit < 1 || !Number.isFinite(issuedAt)) {
     return null;
   }
 
@@ -246,10 +431,146 @@ const parsePresetHistoryPageButtonCustomId = (customId: string) => {
     requesterUserId,
     pageIndex,
     limit,
+    issuedAt,
+  };
+};
+
+const buildBotStatusRefreshButtonCustomId = (requesterUserId: string) => {
+  return `${BOT_STATUS_REFRESH_BUTTON_PREFIX}|${requesterUserId}|${Date.now()}`;
+};
+
+const parseBotStatusRefreshButtonCustomId = (customId: string) => {
+  const [prefix, requesterUserId, issuedAtRaw] = customId.split('|');
+  const issuedAt = Number(issuedAtRaw);
+  if (prefix !== BOT_STATUS_REFRESH_BUTTON_PREFIX || !requesterUserId || !Number.isFinite(issuedAt)) {
+    return null;
+  }
+
+  return {
+    requesterUserId,
+    issuedAt,
+  };
+};
+
+const isInteractionExpired = (issuedAt: number) => {
+  const ttl = Math.max(10000, interactionTtlMs);
+  return Date.now() - issuedAt > ttl;
+};
+
+const notifyExpiredButtonInteraction = async (interaction: ButtonInteraction, message: string) => {
+  try {
+    await interaction.update({
+      components: [],
+    });
+    await interaction.followUp({
+      content: message,
+      ephemeral: true,
+    });
+    return;
+  } catch {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(message).catch(() => undefined);
+      return;
+    }
+
+    await interaction.reply({
+      content: message,
+      ephemeral: true,
+    }).catch(() => undefined);
+  }
+};
+
+const buildBotStatusReplyPayload = (runtime: ReturnType<typeof getBotRuntimeStatus>, requesterUserId: string) => {
+  const nowMs = Date.now();
+  const outageSince = runtime.ready
+    ? null
+    : runtime.lastDisconnectAt || runtime.lastInvalidatedAt || runtime.lastLoginErrorAt || runtime.lastLoginAttemptAt;
+  const outageDuration = outageSince ? Math.max(0, nowMs - Date.parse(outageSince)) : 0;
+  const operational = evaluateBotRuntimeStatus(runtime);
+  const nextCheckInSec = getBotNextCheckInSec(operational.grade);
+  const statusText = operational.grade.toUpperCase();
+  const statusColor = operational.grade === 'healthy' ? 0x22c55e : operational.grade === 'degraded' ? 0xf59e0b : 0xef4444;
+
+  const embed = new EmbedBuilder()
+    .setTitle('Bot Runtime Status')
+    .setColor(statusColor)
+    .setDescription(`STATUS: ${statusText}\n${operational.summary}`)
+    .addFields(
+      {
+        name: 'Core',
+        value: [
+          `READY: ${runtime.ready ? 'YES' : 'NO'}`,
+          `WS: ${runtime.wsStatus}`,
+          `TOKEN: ${runtime.tokenPresent ? 'YES' : 'NO'}`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'Reconnect',
+        value: [
+          `QUEUED: ${runtime.reconnectQueued ? 'YES' : 'NO'}`,
+          `ATTEMPTS: ${runtime.reconnectAttempts}`,
+          `OUTAGE: ${runtime.ready ? '0s' : toDurationText(outageDuration)}`,
+          `NEXT_CHECK_IN: ${nextCheckInSec}s`,
+          `MANUAL_COOLDOWN: ${runtime.manualReconnectCooldownRemainingSec ?? 0}s`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'Last Events',
+        value: [
+          `READY_AT: ${runtime.lastReadyAt || '-'}`,
+          `LOGIN_ATTEMPT_AT: ${runtime.lastLoginAttemptAt || '-'}`,
+          `LOGIN_ERROR_AT: ${runtime.lastLoginErrorAt || '-'}`,
+          `LOGIN_ERROR: ${runtime.lastLoginError || '-'}`,
+          `DISCONNECT_CODE: ${runtime.lastDisconnectCode ?? '-'}`,
+          `DISCONNECT_REASON: ${runtime.lastDisconnectReason || '-'}`,
+          `INVALIDATED_AT: ${runtime.lastInvalidatedAt || '-'}`,
+          `ALERT_AT: ${runtime.lastAlertAt || '-'}`,
+          `ALERT_REASON: ${runtime.lastAlertReason || '-'}`,
+          `RECOVERY_AT: ${runtime.lastRecoveryAt || '-'}`,
+          `MANUAL_RECONNECT_AT: ${runtime.lastManualReconnectAt || '-'}`,
+        ].join('\n').slice(0, 1024),
+        inline: false,
+      },
+      {
+        name: 'Recommended Actions',
+        value: operational.recommendations.join('\n').slice(0, 1024),
+        inline: false,
+      },
+    )
+    .setTimestamp(new Date());
+
+  const components = [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(buildBotStatusRefreshButtonCustomId(requesterUserId))
+        .setLabel('Refresh')
+        .setStyle(ButtonStyle.Primary),
+    ),
+  ];
+
+  return {
+    content: operational.healthy ? '봇 상태 정상' : '봇 상태 점검 필요',
+    embeds: [embed],
+    components,
   };
 };
 
 const presetCommandSpecs = [
+  new SlashCommandBuilder()
+    .setName('bot-status')
+    .setDescription('Discord 봇 현재 운영 상태를 조회합니다 (관리자 전용).'),
+  new SlashCommandBuilder()
+    .setName('bot-reconnect')
+    .setDescription('Discord 봇 재연결을 즉시 트리거합니다 (관리자 전용).')
+    .addStringOption((option) =>
+      option
+        .setName('reason')
+        .setDescription('재연결 사유 메모')
+        .setRequired(false)
+        .setMaxLength(80),
+    ),
   new SlashCommandBuilder()
     .setName('preset-history')
     .setDescription('Research preset 변경 이력을 조회합니다 (관리자 전용).')
@@ -405,6 +726,18 @@ const appendPresetBenchmarkEvent = async (params: {
   ]);
 };
 
+const appendPresetBenchmarkEventSafe = async (params: {
+  userId: string;
+  name: string;
+  payload: Record<string, string | number | boolean | null>;
+}) => {
+  try {
+    await appendPresetBenchmarkEvent(params);
+  } catch (error) {
+    console.error('[Discord Bot] benchmark_events insert failed:', error);
+  }
+};
+
 const ensurePresetAdminInteraction = async (interaction: ChatInputCommandInteraction) => {
   if (!isSupabaseConfigured) {
     await interaction.reply({
@@ -554,6 +887,162 @@ const handlePresetHistoryCommand = async (interaction: ChatInputCommandInteracti
   });
 
   await interaction.editReply(replyPayload);
+};
+
+const handleBotStatusCommand = async (interaction: ChatInputCommandInteraction) => {
+  const allowed = await ensurePresetAdminInteraction(interaction);
+  if (!allowed) {
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const runtime = getBotRuntimeStatus();
+  const operational = evaluateBotRuntimeStatus(runtime);
+
+  await appendPresetBenchmarkEventSafe({
+    userId: interaction.user.id,
+    name: 'research_bot_status_discord',
+    payload: {
+      ready: runtime.ready,
+      grade: operational.grade,
+      wsStatus: runtime.wsStatus,
+      reconnectAttempts: runtime.reconnectAttempts,
+      result: 'success',
+      source: 'slash',
+      actor: interaction.user.username,
+    },
+  });
+
+  await interaction.editReply(buildBotStatusReplyPayload(runtime, interaction.user.id));
+};
+
+const handleBotReconnectCommand = async (interaction: ChatInputCommandInteraction) => {
+  const allowed = await ensurePresetAdminInteraction(interaction);
+  if (!allowed) {
+    return;
+  }
+
+  const reason = interaction.options.getString('reason')?.trim() || 'manual';
+  await interaction.deferReply({ ephemeral: true });
+
+  const result = await forceBotReconnect(`slash:${reason}`);
+  const runtime = getBotRuntimeStatus();
+  const operational = evaluateBotRuntimeStatus(runtime);
+  const failureReason = result.ok ? 'OK' : getReconnectFailureReason(result.message);
+
+  await appendPresetBenchmarkEventSafe({
+    userId: interaction.user.id,
+    name: 'research_bot_reconnect_discord',
+    payload: {
+      ok: result.ok,
+      result: toReconnectResult(result.ok),
+      reason: failureReason,
+      source: 'slash',
+      requestReason: reason,
+      grade: operational.grade,
+      reconnectAttempts: runtime.reconnectAttempts,
+      actor: interaction.user.username,
+    },
+  });
+
+  await interaction.editReply(`${result.message}\nCURRENT_GRADE=${operational.grade.toUpperCase()}`);
+};
+
+const handleBotStatusRefreshButton = async (interaction: ButtonInteraction) => {
+  const parsed = parseBotStatusRefreshButtonCustomId(interaction.customId);
+  if (!parsed) {
+    return;
+  }
+
+  if (!isSupabaseConfigured || !presetAdminUserIds.size) {
+    await appendPresetBenchmarkEventSafe({
+      userId: interaction.user.id,
+      name: 'research_bot_status_discord_button',
+      payload: {
+        result: 'rejected',
+        reason: 'CONFIG',
+        source: 'button',
+        actor: interaction.user.username,
+      },
+    });
+    await interaction.reply({
+      content: '운영 설정이 준비되지 않아 상태 갱신을 실행할 수 없습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (parsed.requesterUserId !== interaction.user.id) {
+    await appendPresetBenchmarkEventSafe({
+      userId: interaction.user.id,
+      name: 'research_bot_status_discord_button',
+      payload: {
+        result: 'rejected',
+        reason: 'REQUESTER_MISMATCH',
+        source: 'button',
+        actor: interaction.user.username,
+      },
+    });
+    await interaction.reply({
+      content: '이 버튼은 명령 실행자만 사용할 수 있습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (isInteractionExpired(parsed.issuedAt)) {
+    await appendPresetBenchmarkEventSafe({
+      userId: interaction.user.id,
+      name: 'research_bot_status_discord_button',
+      payload: {
+        result: 'rejected',
+        reason: 'EXPIRED',
+        source: 'button',
+        actor: interaction.user.username,
+      },
+    });
+    await notifyExpiredButtonInteraction(interaction, '버튼 유효 시간이 만료되었습니다. `/bot-status`를 다시 실행해 주세요.');
+    return;
+  }
+
+  if (!isPresetAdmin(interaction.user.id)) {
+    await appendPresetBenchmarkEventSafe({
+      userId: interaction.user.id,
+      name: 'research_bot_status_discord_button',
+      payload: {
+        result: 'rejected',
+        reason: 'FORBIDDEN',
+        source: 'button',
+        actor: interaction.user.username,
+      },
+    });
+    await interaction.reply({
+      content: '관리자 권한이 없어 이 버튼을 실행할 수 없습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+  const runtime = getBotRuntimeStatus();
+  const operational = evaluateBotRuntimeStatus(runtime);
+
+  await appendPresetBenchmarkEventSafe({
+    userId: interaction.user.id,
+    name: 'research_bot_status_discord_button',
+    payload: {
+      ready: runtime.ready,
+      grade: operational.grade,
+      wsStatus: runtime.wsStatus,
+      reconnectAttempts: runtime.reconnectAttempts,
+      result: 'success',
+      source: 'button',
+      actor: interaction.user.username,
+    },
+  });
+
+  await interaction.editReply(buildBotStatusReplyPayload(runtime, interaction.user.id));
 };
 
 const executePresetRestore = async (params: {
@@ -711,6 +1200,11 @@ const handlePresetRestoreButton = async (interaction: ButtonInteraction) => {
     return;
   }
 
+  if (isInteractionExpired(parsed.issuedAt)) {
+    await notifyExpiredButtonInteraction(interaction, '버튼 유효 시간이 만료되었습니다. `/preset-history`를 다시 실행해 주세요.');
+    return;
+  }
+
   if (!isPresetAdmin(interaction.user.id)) {
     await interaction.reply({
       content: '관리자 권한이 없어 이 버튼을 실행할 수 없습니다.',
@@ -762,6 +1256,11 @@ const handlePresetHistoryPageButton = async (interaction: ButtonInteraction) => 
       content: '이 버튼은 명령 실행자만 사용할 수 있습니다.',
       ephemeral: true,
     });
+    return;
+  }
+
+  if (isInteractionExpired(parsed.issuedAt)) {
+    await notifyExpiredButtonInteraction(interaction, '버튼 유효 시간이 만료되었습니다. `/preset-history`를 다시 실행해 주세요.');
     return;
   }
 
@@ -1022,6 +1521,16 @@ const handlePresetUpsertFromHistoryCommand = async (interaction: ChatInputComman
 client.on('interactionCreate', async (interaction: Interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'bot-status') {
+        await handleBotStatusCommand(interaction);
+        return;
+      }
+
+      if (interaction.commandName === 'bot-reconnect') {
+        await handleBotReconnectCommand(interaction);
+        return;
+      }
+
       if (interaction.commandName === 'preset-history') {
         await handlePresetHistoryCommand(interaction);
         return;
@@ -1044,6 +1553,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith(`${BOT_STATUS_REFRESH_BUTTON_PREFIX}|`)) {
+        await handleBotStatusRefreshButton(interaction);
+        return;
+      }
+
       if (interaction.customId.startsWith(`${PRESET_RESTORE_BUTTON_PREFIX}|`)) {
         await handlePresetRestoreButton(interaction);
         return;
@@ -1078,11 +1592,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 });
 
 client.on('clientReady', () => {
+  const wasReady = botRuntimeStatus.ready;
   botRuntimeStatus.started = true;
   botRuntimeStatus.ready = true;
   botRuntimeStatus.lastReadyAt = new Date().toISOString();
   botRuntimeStatus.lastLoginError = null;
   updateBotRuntimeWsStatus();
+  if (!wasReady) {
+    void sendBotOperationalAlert('client_ready', client.user?.tag || 'unknown', 'success');
+  }
   console.log(`[RENDER_EVENT] BOT_READY tag=${client.user?.tag || 'unknown'}`);
   console.log(`✅ [SUCCESS] Logged in as ${client.user?.tag}`);
   logEvent('Bot started successfully', 'info');
@@ -1098,6 +1616,7 @@ client.on('error', (error) => {
   botRuntimeStatus.lastLoginErrorAt = new Date().toISOString();
   botRuntimeStatus.lastLoginError = error.message;
   updateBotRuntimeWsStatus();
+  void sendBotOperationalAlert('client_error', error.message || 'unknown');
   console.error('[DISCORD_ERROR]', error);
   console.error('[Discord Bot] Error:', error);
   logEvent(`Bot error: ${error.message}`, 'error');
@@ -1122,6 +1641,7 @@ client.on('shardError', (error, shardId) => {
   botRuntimeStatus.lastLoginErrorAt = new Date().toISOString();
   botRuntimeStatus.lastLoginError = error instanceof Error ? error.message : String(error);
   updateBotRuntimeWsStatus();
+  void sendBotOperationalAlert('shard_error', `shard=${shardId} message=${botRuntimeStatus.lastLoginError}`);
   const errCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code ?? 'unknown') : 'unknown';
   console.log(`[RENDER_EVENT] BOT_SHARD_ERROR shard=${shardId} code=${errCode}`);
   console.error('[DISCORD_SHARD_ERROR]', error);
@@ -1134,6 +1654,7 @@ client.on('shardDisconnect', (event, shardId) => {
   botRuntimeStatus.lastDisconnectCode = event.code;
   botRuntimeStatus.lastDisconnectReason = event.reason || 'unknown';
   updateBotRuntimeWsStatus();
+  void sendBotOperationalAlert('shard_disconnect', `shard=${shardId} code=${event.code} reason=${event.reason || 'unknown'}`);
   console.log(`[RENDER_EVENT] BOT_SHARD_DISCONNECT shard=${shardId} code=${event.code} reason=${event.reason || 'unknown'}`);
   if (event.code === 4014) {
     console.log('[RENDER_EVENT] BOT_INTENTS_DISALLOWED_HINT check Discord Portal privileged intents (Message Content / Presence Intent)');
@@ -1155,6 +1676,7 @@ client.on('invalidated', () => {
   botRuntimeStatus.ready = false;
   botRuntimeStatus.lastInvalidatedAt = new Date().toISOString();
   updateBotRuntimeWsStatus();
+  void sendBotOperationalAlert('session_invalidated', 'discord session invalidated');
   console.log('[RENDER_EVENT] BOT_SESSION_INVALIDATED');
   scheduleBotReconnect('session_invalidated', Math.max(5000, reconnectDelayMs));
 });
@@ -1231,6 +1753,7 @@ export function startBot(token: string) {
     botRuntimeStatus.ready = false;
     botRuntimeStatus.lastLoginErrorAt = new Date().toISOString();
     botRuntimeStatus.lastLoginError = 'missing_token';
+    void sendBotOperationalAlert('missing_token', 'DISCORD_TOKEN or DISCORD_BOT_TOKEN is empty');
     console.log('[RENDER_EVENT] BOT_START_SKIPPED reason=missing_token');
     console.log('[Discord Bot] No token provided, bot will not start.');
     return;
@@ -1333,6 +1856,9 @@ export function startBot(token: string) {
       clearInterval(progressInterval);
       console.log(`[RENDER_EVENT] BOT_LOGIN_TIMEOUT ms=${loginTimeoutMs} attempt=${attempt}`);
       console.error('[Discord Bot] Login timed out before ready event.');
+      botRuntimeStatus.lastLoginErrorAt = new Date().toISOString();
+      botRuntimeStatus.lastLoginError = `login_timeout_attempt_${attempt}`;
+      void sendBotOperationalAlert('login_timeout', `attempt=${attempt} timeoutMs=${loginTimeoutMs}`);
 
       if (!hasRetried) {
         hasRetried = true;
@@ -1366,6 +1892,7 @@ export function startBot(token: string) {
         botRuntimeStatus.lastLoginError = `[${errCode}] ${errMessage}`;
         botRuntimeStatus.ready = false;
         updateBotRuntimeWsStatus();
+        void sendBotOperationalAlert('login_failed', `attempt=${attempt} code=${errCode} message=${errMessage}`);
         console.log(`[RENDER_EVENT] BOT_LOGIN_FAILED code=${errCode} attempt=${attempt}`);
         console.error('[Discord Bot] Failed to login:', err);
         logEvent(`Login failed: [${errCode}] ${errMessage}`, 'error');

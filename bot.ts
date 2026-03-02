@@ -1,7 +1,31 @@
-import { startBot } from './src/bot';
+import { client, startBot } from './src/bot';
 import { setDefaultResultOrder } from 'dns';
 
 setDefaultResultOrder('ipv4first');
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[PROCESS] Unhandled rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[PROCESS] Uncaught exception:', error);
+});
+
+const handleShutdownSignal = (signal: NodeJS.Signals) => {
+  console.log(`[PROCESS] Received ${signal}, shutting down Discord client...`);
+  try {
+    if (client.isReady()) {
+      client.destroy();
+    }
+  } catch (error) {
+    console.error('[PROCESS] Failed during Discord client shutdown:', error);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGINT', () => handleShutdownSignal('SIGINT'));
+process.on('SIGTERM', () => handleShutdownSignal('SIGTERM'));
 
 const token = process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN;
 

@@ -176,15 +176,22 @@ npm run seed:research-presets
 - `POST /api/research/preset/:presetKey` : 프리셋 업서트
 - `GET /api/research/preset/:presetKey/history?limit=20` : 변경 이력 조회
 - `POST /api/research/preset/:presetKey/restore/:historyId` : 이력 스냅샷 복원
+- `GET /api/bot/status` : 봇 상태/권장 조치 조회
+- `POST /api/bot/reconnect` : 봇 재연결 트리거 (관리자)
 
 Discord 슬래시 명령(관리자 전용):
 
+- `/bot-status`
+- `/bot-reconnect reason:<optional>`
 - `/preset-history preset_key:<embedded|studio> limit:<1~20>`
 - `/preset-restore preset_key:<embedded|studio> history_id:<uuid>`
 - `/preset-upsert preset_key:<embedded|studio> payload_json:<json>`
 - `/preset-upsert-from-history source_preset_key:<embedded|studio> history_id:<uuid> target_preset_key:<embedded|studio>`
 
 `/preset-history` 응답에는 5건 단위 `Restore` 버튼과 `Prev/Next` 페이지 버튼이 함께 제공되며, 명령 실행자(관리자)만 클릭 실행할 수 있습니다.
+`/bot-status` 응답은 상태 임베드 카드로 출력되며, `Refresh` 버튼으로 명령 재입력 없이 상태를 즉시 갱신할 수 있습니다(명령 실행자 관리자만 가능).
+
+- 모든 슬래시 응답 버튼은 `DISCORD_INTERACTION_TTL_MS` 경과 시 만료되며, 만료 클릭 시 버튼이 비활성화되고 재실행 안내가 표시됩니다.
 
 관련 환경변수:
 
@@ -193,6 +200,11 @@ Discord 슬래시 명령(관리자 전용):
 - `RESEARCH_STUDIO_URL` (선택): Discord 명령 성공 응답에 Studio 이력 패널 링크를 포함할 때 사용하는 기준 URL (예: `https://your-frontend.example.com`)
 - `RESEARCH_PRESET_MUTATION_COOLDOWN_MS` (선택): Discord restore/upsert 계열 명령의 중복 실행 방지 쿨다운(ms, 기본 8000)
 - `DISCORD_RECONNECT_DELAY_MS` (선택): 세션 무효화/샤드 단절 발생 시 자동 재접속 대기 시간(ms, 기본 8000)
+- `DISCORD_MANUAL_RECONNECT_COOLDOWN_MS` (선택): `/bot-reconnect` 수동 재연결 명령 쿨다운(ms, 기본 30000)
+- `DISCORD_BOT_ALERT_WEBHOOK_URL` (선택): 봇 오프라인/복구 이벤트를 받을 Discord Webhook URL
+- `DISCORD_BOT_ALERT_COOLDOWN_MS` (선택): 오프라인 경보 전송 최소 간격(ms, 기본 300000)
+- `DISCORD_INTERACTION_TTL_MS` (선택): Discord 버튼 인터랙션 유효시간(ms, 기본 300000)
+- `BOT_STATUS_VIEW_BENCHMARK_INTERVAL_MS` (선택): `/api/bot/status` 조회 벤치마크 기록 최소 간격(ms, 기본 60000)
 
 Studio 링크 포맷(자동 생성):
 
@@ -211,6 +223,14 @@ Studio 링크 포맷(자동 생성):
 헬스체크 참고:
 
 - `/health` 응답에는 `bot` 상태 스냅샷(ready/wsStatus/lastLoginError/lastDisconnectCode 등)이 포함되며, 토큰이 존재하지만 비가용 상태면 `status=degraded`로 표시됩니다.
+- 관리자 인증 후 `GET /api/bot/status`로 `healthy`, `statusGrade`, `statusSummary`, `recommendations`, `nextCheckInSec`, `outageDurationMs`, 상세 `bot` 상태를 조회할 수 있습니다.
+- Studio의 `ADMIN PRESET HISTORY` 패널은 `GET /api/bot/status`를 주기적으로 폴링해 `BOT_READY/BOT_DEGRADED`, outage 시간, 최근 오류, reconnect 상태를 표시합니다.
+- `/health`는 `uptimeSec`를 함께 제공하며, `/api/bot/status` 조회는 `benchmark_events`에 `bot_status_view`로 기록됩니다.
+- Studio 패널의 봇 상태 폴링은 실패 시 자동으로 backoff(45s)로 전환되고, 복구 시 기본 주기(15s)로 복귀합니다.
+- Studio 패널의 봇 상태 폴링은 `nextCheckInSec` 응답이 있을 때 해당 값 기반으로 주기를 동적으로 조정합니다.
+- Studio `ADMIN PRESET HISTORY`에서 `Reconnect Bot` 버튼으로 `/api/bot/reconnect`를 직접 실행할 수 있습니다.
+- `/health`는 `botStatusGrade` 필드를 함께 제공해 외부 모니터링 시스템에서 등급 기반 알림을 구성할 수 있습니다.
+- Studio 패널은 봇 상태 조회 실패 시 마지막 정상 스냅샷을 유지하고, `bot_status_poll_error`/`bot_status_poll_recovered` 전이 이벤트를 벤치마크로 기록합니다.
 
 문서나 워크플로 샘플을 더 원하시면 GitHub Actions 템플릿 또는 Render/Vercel 스냅샷을 생성해 드리겠습니다.
 
