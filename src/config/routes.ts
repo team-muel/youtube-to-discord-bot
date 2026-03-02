@@ -3,7 +3,6 @@ export const ROUTES = {
   inApp: '/in-app',
   studio: '/studio',
   support: '/support',
-  landingSecond: '/landing-2',
   embedded: '/embedded',
   dashboard: '/dashboard',
 } as const;

@@ -1,124 +1,164 @@
-﻿import { motion } from 'motion/react';
-import { Link } from 'react-router-dom';
-import { AppWindow, Bot } from 'lucide-react';
+﻿import { type CSSProperties } from 'react';
 import { TopSectionSwitcher } from '../components/TopSectionSwitcher';
 import { BackToTopButton } from '../components/BackToTopButton';
-import { commonText } from '../content/commonText';
-import { embedModules, embeddedPageContent, sdkBlocks } from '../content/embeddedContent';
-import { APP_ICONS } from '../config/iconRegistry';
-import { createStaggerPreset } from '../config/motionPresets';
-import { SECTION_MOTION_TOKENS } from '../config/experienceTokens';
-import { UI_PRESETS } from '../config/uiPresets';
 import { AppHeader } from '../components/ui/AppHeader';
+import { useMuelMotion } from '../hooks/useMuelMotion';
+import { researchContent } from '../content/researchContent';
+import { PremiumResearchCard, RadarResearchCard, TrendResearchCard } from '../components/ResearchVisuals';
 import { SurfaceCard } from '../components/ui/SurfaceCard';
-import { PanelHeader } from '../components/ui/PanelHeader';
-
-const embeddedStagger = createStaggerPreset({
-  staggerChildren: SECTION_MOTION_TOKENS.sectionGrid.staggerChildren,
-  delayChildren: SECTION_MOTION_TOKENS.sectionGrid.delayChildren,
-  itemDuration: SECTION_MOTION_TOKENS.embedded.itemDuration,
-});
-const staggerContainer = embeddedStagger.container;
-const staggerItem = embeddedStagger.item;
+import { MuelReveal } from '../components/ui/MuelReveal';
 
 export const EmbeddedApp = () => {
+  const { tokens } = useMuelMotion();
+  const researchSteps = Object.values(researchContent.sections);
+  const motionCssVars = {
+    '--muel-ease': `${tokens.uiEase}`,
+    '--muel-reveal-duration': `${tokens.revealDurationMs}ms`,
+    '--muel-reveal-offset': `${tokens.revealOffsetPx}px`,
+    '--muel-hover-lift': `${tokens.hoverLiftPx}px`,
+    '--muel-hover-scale': `${tokens.hoverScale}`,
+    '--muel-active-scale': `${tokens.activeScale}`,
+    '--muel-hover-duration': `${tokens.hoverDurationMs}ms`,
+    '--muel-card-duration': `${tokens.cardTransitionMs}ms`,
+    '--muel-link-duration': `${tokens.linkTransitionMs}ms`,
+    '--muel-menu-duration': `${tokens.menuTransitionMs}ms`,
+    '--muel-underline-duration': `${tokens.underlineTransitionMs}ms`,
+    '--muel-micro-underline-duration': `${tokens.microUnderlineTransitionMs}ms`,
+    '--muel-media-zoom-duration': `${tokens.mediaZoomDurationMs}ms`,
+    '--muel-skip-duration': `${tokens.skipLinkTransitionMs}ms`,
+    '--muel-glitch-a-duration': `${tokens.glitchDurationAMs}ms`,
+    '--muel-glitch-b-duration': `${tokens.glitchDurationBMs}ms`,
+    '--muel-dock-duration': `${tokens.dockEnterDurationMs}ms`,
+    '--muel-visual-card-shadow-y-rest': `${tokens.visualCardShadowYRestPx}px`,
+    '--muel-visual-card-shadow-blur-rest': `${tokens.visualCardShadowBlurRestPx}px`,
+    '--muel-visual-card-shadow-y-hover': `${tokens.visualCardShadowYHoverPx}px`,
+    '--muel-visual-card-shadow-blur-hover': `${tokens.visualCardShadowBlurHoverPx}px`,
+    '--muel-visual-card-shadow-tint-rest': `${tokens.visualCardShadowTintRestPct}%`,
+    '--muel-visual-card-shadow-tint-hover': `${tokens.visualCardShadowTintHoverPct}%`,
+    '--muel-visual-card-overlay-accent': `${tokens.visualCardOverlayAccentPct}%`,
+    '--muel-visual-card-overlay-opacity-rest': `${tokens.visualCardOverlayOpacityRest}`,
+    '--muel-visual-card-overlay-opacity-hover': `${tokens.visualCardOverlayOpacityHover}`,
+    '--muel-visual-chart-inset-accent': `${tokens.visualChartInsetAccentPct}%`,
+    '--muel-visual-radar-pulse-duration': `${tokens.visualRadarCorePulseDurationMs}ms`,
+    '--muel-visual-radar-pulse-min-opacity': `${tokens.visualRadarCorePulseMinOpacity}`,
+    '--muel-visual-radar-pulse-max-opacity': `${tokens.visualRadarCorePulseMaxOpacity}`,
+    '--muel-visual-radar-pulse-scale': `${tokens.visualRadarCorePulseScale}`,
+  } as CSSProperties;
+
   return (
-    <div className="surface-page surface-bridge hud-grid min-h-screen">
-      <a href="#embedded-main" className="skip-link">{commonText.helper.skipToContent}</a>
-      <AppHeader title={embeddedPageContent.headerTitle} actions={<TopSectionSwitcher />} animated={false} />
+    <div className="surface-page surface-bridge hud-grid research-page-shell" style={motionCssVars}>
+      <AppHeader fixed animated={false} actions={<TopSectionSwitcher />} />
 
-      <main id="embedded-main" className={`section-wrap section-v-80 section-cluster ${UI_PRESETS.borderX}`}>
-        <section className={`io-reveal ${UI_PRESETS.borderBottom} pb-8`}>
-          <motion.div
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ duration: SECTION_MOTION_TOKENS.revealLine.duration, ease: SECTION_MOTION_TOKENS.revealLine.ease }}
-            className={`mb-6 h-px origin-left ${UI_PRESETS.accentLineStrong}`}
-          />
-          <div className={`inline-flex items-center gap-2 ${UI_PRESETS.borderBase} bg-zinc-950/70 px-3 py-1.5 text-xs text-current`}>
-            <AppWindow className={`h-3.5 w-3.5 ${UI_PRESETS.accentText}`} />
-            <span className="mono-data tracking-[0.16em]">{embeddedPageContent.intro.badge}</span>
+      <main className="section-wrap section-v-80 section-cluster dashboard-kpay-flow">
+        <section className="io-reveal research-hero-shell research-hero-divider">
+          <nav className="research-step-line" aria-label="Research flow steps">
+            {researchSteps.map((section, index) => (
+              <span key={section.overline} className="research-step-item mono-data" aria-label={section.title}>
+                <span className="research-step-number">{index + 1}</span>
+                {index < researchSteps.length - 1 ? (
+                  <span className="research-step-separator" aria-hidden="true">
+                    -
+                  </span>
+                ) : null}
+              </span>
+            ))}
+          </nav>
+          <p className="chapter-overline">{researchContent.hero.overline}</p>
+          <h1 className="type-h1 research-hero-title">{researchContent.hero.title}</h1>
+          <p className="type-body research-hero-desc">{researchContent.hero.description}</p>
+        </section>
+
+        <MuelReveal as="section" className="io-reveal section-emphasis-shell" delayMultiplier={0}>
+          <header className="muel-section-head">
+            <p className="chapter-overline">{researchContent.sections.connectors.overline}</p>
+            <h2 className="chapter-title">{researchContent.sections.connectors.title}</h2>
+            <p className="chapter-desc">{researchContent.sections.connectors.description}</p>
+          </header>
+
+          <div className="feature-reboot-grid research-triple-grid">
+            {researchContent.connectors.map((connector) => (
+              <SurfaceCard key={connector.id} hoverable className="feature-reboot-card research-feature-card muel-interact">
+                <p className="feature-reboot-kicker">{connector.status}</p>
+                <h3 className="feature-reboot-title">{connector.title}</h3>
+                <p className="feature-reboot-desc">{connector.description}</p>
+              </SurfaceCard>
+            ))}
           </div>
-          <h1 className="type-h1 mt-4 max-w-4xl">
-            {embeddedPageContent.intro.titleLines[0]}
-            <br className="hidden md:block" />
-            {embeddedPageContent.intro.titleLines[1]}
-          </h1>
-          <p className="type-body mt-6 max-w-3xl text-current">
-            {embeddedPageContent.intro.description}
-          </p>
-        </section>
+        </MuelReveal>
 
-        <section className="io-reveal">
-          <PanelHeader title={embeddedPageContent.sections.sdkGrid.title} label={embeddedPageContent.sections.sdkGrid.label} />
+        <div className="kpay-divider" aria-hidden="true" />
 
-          <motion.div
-            variants={staggerContainer}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: SECTION_MOTION_TOKENS.sectionGrid.once, amount: SECTION_MOTION_TOKENS.sectionGrid.viewportAmount }}
-            className={`grid grid-cols-1 ${UI_PRESETS.gridFrame} md:grid-cols-3`}
-          >
-            {sdkBlocks.map((block) => {
-              const Icon = APP_ICONS[block.iconKey];
-              return (
-                <SurfaceCard
-                  as={motion.article}
-                  key={block.title}
-                  variants={staggerItem}
-                  hoverable
-                  className={`${UI_PRESETS.gridCell} bg-zinc-900/35 p-6`}
-                >
-                  <Icon className={`h-5 w-5 ${UI_PRESETS.accentText}`} />
-                  <div className="mono-data mt-4 text-xs tracking-[0.15em] text-current">{block.title}</div>
-                  <div className={`mono-data mt-2 text-2xl ${UI_PRESETS.accentText}`}>{block.value}</div>
-                  <p className="mt-3 text-sm leading-relaxed text-current">{block.description}</p>
-                </SurfaceCard>
-              );
-            })}
-          </motion.div>
-        </section>
+        <MuelReveal as="section" className="io-reveal section-emphasis-shell" delayMultiplier={0}>
+          <header className="muel-section-head">
+            <p className="chapter-overline">{researchContent.sections.workbench.overline}</p>
+            <h2 className="chapter-title">{researchContent.sections.workbench.title}</h2>
+            <p className="chapter-desc">{researchContent.sections.workbench.description}</p>
+          </header>
 
-        <section className="io-reveal">
-          <PanelHeader title={embeddedPageContent.sections.modules.title} label={embeddedPageContent.sections.modules.label} />
-          <motion.div
-            variants={staggerContainer}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: SECTION_MOTION_TOKENS.sectionGrid.once, amount: SECTION_MOTION_TOKENS.sectionGrid.viewportAmount }}
-            className={`grid grid-cols-1 ${UI_PRESETS.gridFrame} md:grid-cols-3`}
-          >
-            {embedModules.map((module) => {
-              const Icon = APP_ICONS[module.iconKey];
-              return (
-                <SurfaceCard
-                  as={motion.article}
-                  key={module.title}
-                  variants={staggerItem}
-                  hoverable
-                  className={`${UI_PRESETS.gridCell} bg-zinc-900/35 p-6`}
-                >
-                  <Icon className={`h-5 w-5 ${UI_PRESETS.accentText}`} />
-                  <h3 className="mt-4 text-lg font-medium">{module.title}</h3>
-                  <p className="mt-2 text-sm text-current">{module.subtitle}</p>
-                </SurfaceCard>
-              );
-            })}
-          </motion.div>
-        </section>
+          <div className="feature-reboot-grid research-triple-grid">
+            <SurfaceCard hoverable className="feature-reboot-card research-feature-card muel-interact">
+              <p className="feature-reboot-kicker">DATA FEEDS</p>
+              <ul className="research-bullet-list">
+                {researchContent.workbench.feeds.map((feed) => (
+                  <li key={feed}>{feed}</li>
+                ))}
+              </ul>
+            </SurfaceCard>
 
-        <SurfaceCard as="section" hoverable className={`io-reveal rounded-xl ${UI_PRESETS.borderBase} bg-zinc-900/35 p-6`}>
-          <PanelHeader title={embeddedPageContent.sections.policy.title} leading={<Bot className={`h-5 w-5 ${UI_PRESETS.accentText}`} />} className="!mb-4" />
-          <ul className="space-y-2 text-sm text-current">
-            <li className={`${UI_PRESETS.borderLeft} pl-3`}>
-              <span className={`mono-data ${UI_PRESETS.accentText}`}>{embeddedPageContent.sections.policy.embeddedPath}</span> : {embeddedPageContent.sections.policy.embeddedDescription}
-            </li>
-            <li className={`${UI_PRESETS.borderLeft} pl-3`}>
-              <span className={`mono-data ${UI_PRESETS.accentText}`}>{embeddedPageContent.sections.policy.dashboardPath}</span> : {embeddedPageContent.sections.policy.dashboardDescription}
-            </li>
-          </ul>
-        </SurfaceCard>
+            <SurfaceCard hoverable className="feature-reboot-card research-feature-card muel-interact">
+              <p className="feature-reboot-kicker">VISUAL MODES</p>
+              <ul className="research-bullet-list">
+                {researchContent.workbench.views.map((view) => (
+                  <li key={view}>{view}</li>
+                ))}
+              </ul>
+            </SurfaceCard>
+
+            <SurfaceCard hoverable className="feature-reboot-card research-feature-card muel-interact">
+              <p className="feature-reboot-kicker">NAVER PREMIUM VIEW</p>
+              <ul className="research-bullet-list">
+                {researchContent.workbench.library.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </SurfaceCard>
+          </div>
+        </MuelReveal>
+
+        <div className="kpay-divider" aria-hidden="true" />
+
+        <MuelReveal as="section" className="io-reveal section-emphasis-shell" delayMultiplier={0}>
+          <header className="muel-section-head">
+            <p className="chapter-overline">{researchContent.sections.charts.overline}</p>
+            <h2 className="chapter-title">{researchContent.sections.charts.title}</h2>
+            <p className="chapter-desc">{researchContent.sections.charts.description}</p>
+          </header>
+
+          <div className="research-charts-grid">
+            <RadarResearchCard
+              title={researchContent.radar.title}
+              subtitle={researchContent.radar.subtitle}
+              metrics={researchContent.radar.metrics}
+            />
+            <TrendResearchCard
+              title={researchContent.trend.title}
+              subtitle={researchContent.trend.subtitle}
+              labels={researchContent.trend.labels}
+              values={researchContent.trend.values}
+            />
+          </div>
+
+          <div className="research-premium-wrap">
+            <PremiumResearchCard
+              title={researchContent.premium.title}
+              subtitle={researchContent.premium.subtitle}
+              lockLabel={researchContent.premium.lockLabel}
+              rows={researchContent.premium.rows}
+            />
+          </div>
+        </MuelReveal>
       </main>
+
       <BackToTopButton />
     </div>
   );

@@ -13,7 +13,7 @@ export const SurfaceCard = <C extends ElementType = 'article'>({
   children,
   className = '',
   hoverable = false,
-  corners = true,
+  corners = false,
   ...restProps
 }: SurfaceCardProps<C>) => {
   const Component = as ?? 'article';

@@ -27,9 +27,9 @@ export const BackToTopButton: React.FC = () => {
       size="sm"
       ariaLabel={commonText.helper.backToTopAria}
       onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-      className="fixed bottom-5 right-5 z-40 bg-zinc-950/90 !text-xs !font-medium text-current backdrop-blur"
+      className="back-to-top-btn"
     >
-      <ArrowUp className="h-4 w-4" />
+      <ArrowUp className="icon-16" />
       {commonText.helper.backToTop}
     </UiButton>
   );

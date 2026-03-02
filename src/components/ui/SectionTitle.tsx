@@ -1,6 +1,6 @@
 ﻿import React from 'react';
 import { motion } from 'motion/react';
-import { UI_PRESETS } from '../../config/uiPresets';
+import { SECTION_MOTION_TOKENS } from '../../config/experienceTokens';
 
 interface SectionTitleProps {
   title: string;
@@ -12,21 +12,21 @@ interface SectionTitleProps {
 export const SectionTitle: React.FC<SectionTitleProps> = ({
   title,
   label,
-  accentLineClass = UI_PRESETS.accentLine,
-  wrapperClassName = `mb-8 flex items-end justify-between ${UI_PRESETS.borderBottom} pb-6`,
+  accentLineClass = 'section-title-accent-line',
+  wrapperClassName = 'section-title-wrap',
 }) => {
   return (
     <>
       <div className={wrapperClassName}>
         <h2 className="type-h2">{title}</h2>
-        <span className="mono-data text-xs tracking-[0.18em] text-current">{label}</span>
+        <span className="mono-data section-title-label">{label}</span>
       </div>
       <motion.div
         initial={{ scaleX: 0 }}
         whileInView={{ scaleX: 1 }}
         viewport={{ once: true, amount: 0.4 }}
-        transition={{ duration: 0.7, ease: 'easeOut' }}
-        className={`mb-3 h-px origin-left ${accentLineClass}`}
+        transition={{ duration: SECTION_MOTION_TOKENS.timing.lineDuration, ease: SECTION_MOTION_TOKENS.timing.ease }}
+        className={`section-title-line ${accentLineClass}`}
       />
     </>
   );

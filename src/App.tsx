@@ -1,17 +1,10 @@
 ﻿import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from './config';
-import { Landing } from './pages/Landing';
-import { EmbeddedApp } from './pages/EmbeddedApp';
-import { Dashboard } from './pages/Dashboard';
-import { OperationsAccessGate } from './pages/OperationsAccessGate';
-import { StudioReference } from './pages/StudioReference';
-import { SupportCenter } from './pages/SupportCenter';
-import { applySurfaceMode, SURFACE_MODE_POLICY } from './surfaceMode';
+import { Dashboard, EmbeddedApp, StudioReference, SupportCenter } from './pages';
+import { applySurfaceMode, getStoredSurfaceMode } from './surfaceMode';
 import { SurfaceCard } from './components/ui/SurfaceCard';
-import { isRouteProtected } from './config/informationArchitecture';
 import { ROUTES } from './config/routes';
-import { UI_PRESETS } from './config/uiPresets';
 import { BENCHMARK_EVENTS } from './config/benchmarkEvents';
 import { trackBenchmarkEvent } from './lib/benchmarkTracker';
 import { useBenchmarkSync } from './hooks/useBenchmarkSync';
@@ -63,7 +56,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    applySurfaceMode(SURFACE_MODE_POLICY);
+    applySurfaceMode(getStoredSurfaceMode());
     trackBenchmarkEvent(BENCHMARK_EVENTS.appBootStart);
   }, []);
 
@@ -207,24 +200,24 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="surface-page surface-bridge hud-grid flex min-h-screen items-center justify-center px-6">
-        <SurfaceCard className={`quant-scan w-full max-w-xl ${UI_PRESETS.borderBase} bg-zinc-900/45 p-8`}>
-          <div className={`mono-data text-xs tracking-[0.2em] ${UI_PRESETS.accentText}`}>DISCORD WEBVIEW BOOT</div>
-          <h1 className="mt-3 text-2xl font-semibold md:text-3xl">System Initializing...</h1>
-          <p className="mt-3 text-sm text-current">보안 컨텍스트와 운영 데이터를 동기화 중입니다.</p>
+      <div className="surface-page surface-bridge hud-grid app-boot-shell">
+        <SurfaceCard className="quant-scan app-boot-card">
+          <div className="mono-data app-boot-kicker">DISCORD WEBVIEW BOOT</div>
+          <h1 className="app-boot-title">System Initializing...</h1>
+          <p className="app-boot-desc">보안 컨텍스트와 운영 데이터를 동기화 중입니다.</p>
 
-          <div className={`mt-7 ${UI_PRESETS.borderBase} bg-zinc-950/70 p-2`}>
-            <div className="h-2 w-full overflow-hidden bg-zinc-200">
+          <div className="app-boot-progress-shell">
+            <div className="app-boot-progress-track">
               <div
-                className={`h-full ${UI_PRESETS.accentBg} transition-[width] duration-150 ease-out`}
+                className="app-boot-progress-fill"
                 style={{ width: `${bootProgress}%` }}
               />
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-xs">
-            <span className="mono-data text-current">{bootStep}</span>
-            <span className={`mono-data ${UI_PRESETS.accentText}`}>{Math.floor(bootProgress)}%</span>
+          <div className="app-boot-meta">
+            <span className="mono-data app-boot-step">{bootStep}</span>
+            <span className="mono-data app-boot-percent">{Math.floor(bootProgress)}%</span>
           </div>
         </SurfaceCard>
       </div>
@@ -235,20 +228,10 @@ export default function App() {
     <BrowserRouter>
       <RouteBenchmarkTracker />
       <Routes>
-        <Route path={ROUTES.home} element={<Landing />} />
+        <Route path={ROUTES.home} element={<Dashboard user={user} onLogout={handleLogout} />} />
         <Route path={ROUTES.inApp} element={<EmbeddedApp />} />
         <Route path={ROUTES.embedded} element={<Navigate to={ROUTES.inApp} replace />} />
-        <Route path={ROUTES.landingSecond} element={<Navigate to={ROUTES.inApp} replace />} />
-        <Route 
-          path={ROUTES.dashboard}
-          element={
-            user || !isRouteProtected(ROUTES.dashboard) ? (
-              <Dashboard user={user} onLogout={handleLogout} />
-            ) : (
-              <OperationsAccessGate />
-            )
-          } 
-        />
+        <Route path={ROUTES.dashboard} element={<Navigate to={ROUTES.home} replace />} />
         <Route path={ROUTES.studio} element={<StudioReference />} />
         <Route path={ROUTES.support} element={<SupportCenter />} />
         <Route path="*" element={<Navigate to={ROUTES.home} replace />} />

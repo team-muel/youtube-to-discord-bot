@@ -1,45 +1,66 @@
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { sectionNavigationItems } from '../config/sectionNavigation';
-import { UI_PRESETS } from '../config/uiPresets';
 import { BENCHMARK_EVENTS } from '../config/benchmarkEvents';
-import { UiButton } from './ui/UiButton';
 
 interface TopSectionSwitcherProps {
   compact?: boolean;
   includeExternal?: boolean;
 }
 
-export const TopSectionSwitcher: React.FC<TopSectionSwitcherProps> = ({ compact = false, includeExternal = true }) => {
+export const TopSectionSwitcher: React.FC<TopSectionSwitcherProps> = ({ compact = true, includeExternal = true }) => {
   const location = useLocation();
   const items = includeExternal ? sectionNavigationItems : sectionNavigationItems.filter((item) => !item.external);
 
   return (
-    <nav className="flex max-w-full items-center gap-2 overflow-x-auto">
-      {items.map((item) => {
-        const Icon = item.icon;
-        const isActive = !item.external && (location.pathname === item.to || (item.to === '/' && location.pathname === '/'));
-        const commonClass = `!px-3 !py-1.5 !text-xs !gap-1.5 ${isActive ? UI_PRESETS.switcherActive : UI_PRESETS.switcherBase}`;
-        const label = compact ? (item.shortLabel ?? item.label) : item.label;
+    <div className="kpay-topbar-nav" aria-label="top section switcher">
+      <div className="kpay-locale kpay-locale-ghost" aria-hidden="true">
+        <span className="kpay-locale-item">KOR</span>
+        <span className="kpay-locale-item">ENG</span>
+      </div>
+      <nav className="kpay-menu-rail">
+        {items.map((item) => {
+          const isActive = !item.external && (location.pathname === item.to || (item.to === '/' && location.pathname === '/'));
+          const label = compact ? (item.shortLabel ?? item.label) : item.label;
 
-        return (
-          <UiButton
-            key={item.label}
-            to={!item.external ? item.to : undefined}
-            href={item.external ? item.to : undefined}
-            variant="outline"
-            className={commonClass}
-            ariaLabel={`${item.label} ${item.external ? '열기' : '이동'}`}
-            benchmarkEvent={BENCHMARK_EVENTS.navClick}
-            benchmarkId={item.to}
-            benchmarkLabel={item.label}
-            benchmarkArea="top-switcher"
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {label}
-          </UiButton>
-        );
-      })}
-    </nav>
+          if (item.external) {
+            return (
+              <a
+                key={item.label}
+                href={item.to}
+                className={`kpay-menu-item ${isActive ? 'is-active' : ''}`}
+                aria-label={`${item.label} 열기`}
+                data-benchmark-event={BENCHMARK_EVENTS.navClick}
+                data-benchmark-id={item.to}
+                data-benchmark-label={item.label}
+                data-benchmark-area="top-switcher"
+              >
+                <span className="kpay-menu-item-label">{label}</span>
+              </a>
+            );
+          }
+
+          return (
+            <Link
+              key={item.label}
+              to={item.to}
+              className={`kpay-menu-item ${isActive ? 'is-active' : ''}`}
+              aria-label={`${item.label} 이동`}
+              aria-current={isActive ? 'page' : undefined}
+              data-benchmark-event={BENCHMARK_EVENTS.navClick}
+              data-benchmark-id={item.to}
+              data-benchmark-label={item.label}
+              data-benchmark-area="top-switcher"
+            >
+              <span className="kpay-menu-item-label">{label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+      <div className="kpay-locale" aria-label="language selector">
+        <button type="button" className="kpay-locale-item is-active" aria-pressed="true">KOR</button>
+        <button type="button" className="kpay-locale-item" aria-pressed="false">ENG</button>
+      </div>
+    </div>
   );
 };

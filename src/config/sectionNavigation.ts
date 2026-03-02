@@ -11,10 +11,12 @@ export type SectionNavItem = {
 
 export { BOT_INVITE_URL };
 
-export const sectionNavigationItems: SectionNavItem[] = getIaNodes({ includeExternal: true }).map((item) => ({
-  label: item.label,
-  shortLabel: item.shortLabel,
-  to: item.to,
-  icon: item.icon,
-  external: item.external,
-}));
+export const sectionNavigationItems: SectionNavItem[] = getIaNodes({ includeExternal: true })
+  .filter((item) => item.showInNav !== false)
+  .map((item) => ({
+    label: item.label,
+    shortLabel: item.shortLabel,
+    to: item.to,
+    icon: item.icon,
+    external: item.external,
+  }));

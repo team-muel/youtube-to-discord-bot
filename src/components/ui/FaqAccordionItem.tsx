@@ -1,6 +1,5 @@
 ﻿import React from 'react';
 import { ChevronDown } from 'lucide-react';
-import { UI_PRESETS } from '../../config/uiPresets';
 import { SurfaceCard } from './SurfaceCard';
 
 interface FaqAccordionItemProps {
@@ -22,20 +21,20 @@ export const FaqAccordionItem: React.FC<FaqAccordionItemProps> = ({
   const faqButtonId = `faq-button-${index}`;
 
   return (
-    <SurfaceCard className={`${UI_PRESETS.borderBase} bg-zinc-900/35`}>
+    <SurfaceCard className="faq-item-shell">
       <button
         id={faqButtonId}
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
         aria-controls={faqAnswerId}
-        className={`flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sm transition ${isOpen ? 'text-current' : 'text-current hover:text-current'}`}
+        className={`faq-item-button ${isOpen ? 'is-open' : ''}`.trim()}
       >
-        <span className="font-medium">{question}</span>
-        <ChevronDown className={`h-4 w-4 shrink-0 transition ${isOpen ? `rotate-180 ${UI_PRESETS.accentText}` : 'text-current'}`} />
+        <span className="faq-item-question">{question}</span>
+        <ChevronDown className={`faq-item-icon ${isOpen ? 'is-open' : ''}`.trim()} />
       </button>
       {isOpen && (
-        <div id={faqAnswerId} role="region" aria-labelledby={faqButtonId} className={`${UI_PRESETS.borderTop} px-5 py-4 text-sm leading-relaxed text-current`}>
+        <div id={faqAnswerId} role="region" aria-labelledby={faqButtonId} className="faq-item-answer">
           {answer}
         </div>
       )}

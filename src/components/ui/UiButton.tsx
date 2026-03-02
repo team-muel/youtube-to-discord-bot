@@ -1,6 +1,5 @@
 ﻿import React, { type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { UI_PRESETS } from '../../config/uiPresets';
 
 type Variant = 'outline' | 'accent' | 'solid' | 'ghost' | 'tab';
 type Size = 'sm' | 'md' | 'lg';
@@ -26,29 +25,27 @@ interface UiButtonProps {
   benchmarkArea?: string;
 }
 
-const baseClasses = 'cta-subtle inline-flex items-center gap-2 rounded-full transition';
+const baseClasses = 'cta-subtle ui-btn';
 
 const sizeClasses: Record<Size, string> = {
-  sm: 'px-3 py-1.5 text-xs',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-sm font-medium',
+  sm: 'ui-btn-size-sm',
+  md: 'ui-btn-size-md',
+  lg: 'ui-btn-size-lg',
 };
 
 const getVariantClasses = (variant: Variant, active: boolean) => {
   switch (variant) {
     case 'accent':
-      return `${UI_PRESETS.accentBorderSoft} ${UI_PRESETS.accentText} ${UI_PRESETS.accentBgHoverSoft12} ${UI_PRESETS.accentBorderHoverSoft}`;
+      return 'ui-btn-variant-accent';
     case 'solid':
-      return `${UI_PRESETS.accentBg} text-current hover:brightness-95`;
+      return 'ui-btn-variant-solid';
     case 'ghost':
-      return `${UI_PRESETS.borderMuted} text-current ${UI_PRESETS.accentBorderHover} ${UI_PRESETS.accentTextHover}`;
+      return 'ui-btn-variant-ghost';
     case 'tab':
-      return active
-        ? `${UI_PRESETS.accentBg} text-current border ${UI_PRESETS.accentBorder}`
-        : `${UI_PRESETS.borderMuted} text-current ${UI_PRESETS.accentBorderHover} ${UI_PRESETS.accentTextHover}`;
+      return active ? 'ui-btn-variant-tab-active' : 'ui-btn-variant-tab';
     case 'outline':
     default:
-      return `${UI_PRESETS.borderMuted} text-current ${UI_PRESETS.accentBorderHover} ${UI_PRESETS.accentTextHover}`;
+      return 'ui-btn-variant-outline';
   }
 };
 
@@ -72,7 +69,7 @@ export const UiButton: React.FC<UiButtonProps> = ({
   benchmarkLabel,
   benchmarkArea,
 }) => {
-  const disabledClasses = disabled ? 'cursor-not-allowed opacity-50 pointer-events-none' : '';
+  const disabledClasses = disabled ? 'ui-btn-disabled' : '';
   const classes = `${baseClasses} ${sizeClasses[size]} ${getVariantClasses(variant, active)} ${disabledClasses} ${className}`.trim();
 
   if (to) {

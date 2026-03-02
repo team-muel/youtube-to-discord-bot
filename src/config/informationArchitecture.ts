@@ -1,4 +1,4 @@
-import { Bot, Compass, Headset, Newspaper, TabletSmartphone, type LucideIcon } from 'lucide-react';
+import { Compass, Headset, Newspaper, TabletSmartphone, type LucideIcon } from 'lucide-react';
 import { ROUTES, type AppRoute } from './routes';
 
 export const BOT_INVITE_URL = 'https://discord.com/api/oauth2/authorize?client_id=1476491781221646480&permissions=8&scope=bot%20applications.commands';
@@ -20,64 +20,53 @@ export type IaNode = {
   purpose: string;
   hubId?: 'home' | 'in-app' | 'studio' | 'support';
   order: number;
+  showInNav?: boolean;
 };
 
 export const IA_NODES: IaNode[] = [
   {
     id: 'home',
-    label: '홈',
-    shortLabel: '홈',
+    label: 'Muel',
+    shortLabel: '메 인',
     to: ROUTES.home,
     icon: Compass,
     group: 'primary',
     mode: 'home',
     access: 'public',
-    purpose: '서비스 개요 및 QnA 허브',
+    purpose: '메인 화면',
     hubId: 'home',
     order: 1,
   },
   {
     id: 'in-app',
-    label: '인앱 데이터',
-    shortLabel: '인앱',
+    label: '리서치',
+    shortLabel: '리 서 치',
     to: ROUTES.inApp,
     icon: TabletSmartphone,
     group: 'primary',
     mode: 'in-app',
     access: 'public',
-    purpose: 'Discord 인앱 경제 데이터 확인',
+    purpose: '인앱 데이터 기반 리서치 뷰',
     hubId: 'in-app',
     order: 2,
   },
   {
-    id: 'dashboard',
-    label: '운영',
-    shortLabel: '운영',
-    to: ROUTES.dashboard,
-    icon: Bot,
-    group: 'operations',
-    mode: 'operations',
-    access: 'authenticated',
-    purpose: '디스코드 운영 대시보드 제어',
-    order: 3,
-  },
-  {
     id: 'studio',
-    label: '스튜디오',
-    shortLabel: '스튜디오',
+    label: '후원',
+    shortLabel: '후 원',
     to: ROUTES.studio,
     icon: Newspaper,
     group: 'operations',
     mode: 'studio',
     access: 'public',
-    purpose: '콘텐츠 스튜디오 운영 레퍼런스 허브',
+    purpose: '후원 및 멤버십 안내 허브',
     hubId: 'studio',
-    order: 4,
+    order: 3,
   },
   {
     id: 'support',
     label: '고객센터',
-    shortLabel: '고객센터',
+    shortLabel: '문 의',
     to: ROUTES.support,
     icon: Headset,
     group: 'operations',
@@ -85,7 +74,7 @@ export const IA_NODES: IaNode[] = [
     access: 'public',
     purpose: '고객지원 및 FAQ 허브',
     hubId: 'support',
-    order: 5,
+    order: 4,
   },
 ];
 

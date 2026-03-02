@@ -1,6 +1,5 @@
 ﻿import React from 'react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
-import { UI_PRESETS } from '../config/uiPresets';
 import { BENCHMARK_EVENTS } from '../config/benchmarkEvents';
 import { SurfaceCard } from './ui/SurfaceCard';
 import { UiButton } from './ui/UiButton';
@@ -27,16 +26,16 @@ export const PageFlowNavigator: React.FC<PageFlowNavigatorProps> = ({
   nextLabel = '다음 화면',
 }) => {
   return (
-    <section className={UI_PRESETS.flowSection}>
-      <SurfaceCard className={`rounded-xl ${UI_PRESETS.borderBase} bg-zinc-900/35 p-6`}>
-        <div className="mono-data text-xs tracking-[0.16em] text-current">PAGE FLOW</div>
-        <h2 className="type-h2 mt-3">{title}</h2>
-        {description && <p className="type-body mt-3 text-current">{description}</p>}
-        <div className={`mt-5 flex items-center justify-between gap-4 ${UI_PRESETS.borderTop} pt-4`}>
-          <span className="mono-data text-xs tracking-[0.15em] text-current">
+    <section className="page-flow-section">
+      <SurfaceCard className="page-flow-card">
+        <div className="mono-data page-flow-kicker">PAGE FLOW</div>
+        <h2 className="type-h2 page-flow-title">{title}</h2>
+        {description && <p className="type-body page-flow-desc">{description}</p>}
+        <div className="page-flow-footer">
+          <span className="mono-data page-flow-indicator">
             PAGE {current} / {total}
           </span>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="page-flow-actions">
             {prevTo && (
               <UiButton
                 to={prevTo}
@@ -46,7 +45,7 @@ export const PageFlowNavigator: React.FC<PageFlowNavigatorProps> = ({
                 benchmarkLabel={prevLabel}
                 benchmarkArea="page-flow-prev"
               >
-                <ArrowLeft className="h-4 w-4" /> {prevLabel}
+                <ArrowLeft className="icon-16" /> {prevLabel}
               </UiButton>
             )}
             {nextTo && (
@@ -58,7 +57,7 @@ export const PageFlowNavigator: React.FC<PageFlowNavigatorProps> = ({
                 benchmarkLabel={nextLabel}
                 benchmarkArea="page-flow-next"
               >
-                {nextLabel} <ArrowRight className="h-4 w-4" />
+                {nextLabel} <ArrowRight className="icon-16" />
               </UiButton>
             )}
           </div>

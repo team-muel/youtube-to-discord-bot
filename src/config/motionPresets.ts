@@ -10,7 +10,7 @@ type StaggerPresetOptions = {
 export const createStaggerPreset = ({
   staggerChildren = 0.1,
   delayChildren = 0.04,
-  itemDuration = SECTION_MOTION_TOKENS.hero.bodyDuration,
+  itemDuration = SECTION_MOTION_TOKENS.timing.contentDuration,
   itemOffsetY = 20,
 }: StaggerPresetOptions = {}) => ({
   container: {
@@ -27,7 +27,7 @@ export const createStaggerPreset = ({
     visible: {
       opacity: 1,
       y: 0,
-      transition: { duration: itemDuration, ease: 'easeOut' as const },
+      transition: { duration: itemDuration, ease: SECTION_MOTION_TOKENS.timing.ease },
     },
   },
 });
