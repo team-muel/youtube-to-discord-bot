@@ -66,6 +66,9 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
 - Backend + Bot: Render Web Service — `server.ts`를 호스팅하고 내부에서 봇을 함께 실행
 - DB/Auth/Storage: Supabase
 
+백엔드의 크롤링/소스 처리는 `src/backend/registry` 기반으로 분리되어 있으며,
+기능 플래그(`FEATURE_SOURCES_ENABLED`, `FEATURE_YOUTUBE_CRAWLER_ENABLED`, `FEATURE_CRAWLER_SCHEDULER_ENABLED`)로 포괄 제어할 수 있습니다.
+
 ### 2) 환경 변수(권장 이름)
 
 - 클라이언트(Vercel, 반드시 `VITE_` 접두사 사용):

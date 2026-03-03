@@ -11,6 +11,8 @@ import { scrapeYouTubePost } from './src/scraper';
 import { getResolvedResearchPreset, isResearchPresetKey, type ResearchPresetKey, type ResolvedResearchPreset } from './src/content/researchContent';
 import { isResolvedResearchPreset } from './src/lib/researchPresetValidation';
 import { getReconnectFailureReason, toReconnectResult } from './src/lib/reconnectTelemetry';
+import { createCrawlerRuntimeRegistry } from './src/backend/registry/crawlerRuntimeRegistry';
+import { isBackendFeatureEnabled } from './src/backend/registry/externalFeatureRegistry';
 import { ChannelType } from 'discord.js';
 import { JwtUser, Source, SettingsRow, AuthenticatedRequest } from './src/types';
 import { imageUrlToBase64, truncateText, MAX_SOURCES_PER_GUILD, DEFAULT_PAGE_LIMIT, MAX_LOGS_DISPLAY, getSafeErrorMessage, validateYouTubeUrl } from './src/utils';
@@ -278,92 +280,6 @@ const appendResearchPresetAudit = async (row: ResearchPresetAuditInsertRow) => {
   }
 };
 
-// --- Background Job ---
-
-// process a single source entry, returning when done (or throwing)
-async function processSource(source: Source) {
-  const userId = source.user_id;
-  const forumChannelId = source.channel_id;
-  if (!userId || !forumChannelId) return;
-
-  try {
-    const { content, imageUrl, author } = await scrapeYouTubePost(source.url);
-    const postSignature = `${content.substring(0, 100)}_${imageUrl}`;
-
-    const updateData: Partial<Pick<Source, 'last_check_status' | 'last_check_error' | 'last_check_at' | 'last_post_signature'>> = {
-      last_check_status: 'success',
-      last_check_error: null,
-      last_check_at: new Date().toISOString()
-    };
-
-    if (source.last_post_signature !== postSignature) {
-      console.log(`[Background Job] New post detected for ${author} (User: ${userId})`);
-
-      if (!client.isReady()) {
-        const offlineMessage = 'Discord bot is not ready. New post dispatch deferred.';
-        console.warn(`[Background Job] ${offlineMessage} source=${source.id}`);
-        await logEvent(`${offlineMessage} source=${source.id}`, 'error', userId);
-        updateData.last_check_status = 'error';
-        updateData.last_check_error = offlineMessage;
-      } else {
-        let imageBase64: string | undefined;
-        if (imageUrl) {
-          imageBase64 = await imageUrlToBase64(imageUrl);
-        }
-
-        const title = `${author}님의 새 커뮤니티 게시글`;
-        const maxContentLength = 1800;
-        const truncatedContent = truncateText(content || '내용 없음', maxContentLength);
-        const fullContent = `${truncatedContent}\n\n🔗 원본 링크: ${source.url}`;
-
-        await createForumThread(forumChannelId, title, fullContent, imageBase64, userId);
-        updateData.last_post_signature = postSignature;
-      }
-    }
-
-    const { error: updateError } = await supabase.from('sources').update(updateData).eq('id', source.id);
-    if (updateError) {
-      console.error(`[Background Job] Failed to update source ${source.id}:`, updateError.message);
-    }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[Background Job] Error processing source ${source.url} for user ${userId}:`, message);
-    
-    // Try to update error status in database
-    const { error: updateError } = await supabase.from('sources').update({
-      last_check_status: 'error',
-      last_check_error: message,
-      last_check_at: new Date().toISOString()
-    }).eq('id', source.id);
-    
-    if (updateError) {
-      console.error(`[Background Job] Failed to save error status for source ${source.id}:`, updateError.message);
-    }
-  }
-}
-
-async function runBackgroundJob() {
-  if (!isSupabaseConfigured) return;
-
-  try {
-    // 1. Get all sources directly
-    const { data: sources, error: sourcesError } = await supabase.from('sources').select('*');
-    if (sourcesError || !sources) {
-      console.error('[Background Job] Failed to fetch sources:', sourcesError?.message || 'Unknown error');
-      return;
-    }
-
-    // Process sources with 1-second delay between each to avoid server overload
-    for (const source of sources) {
-      await processSource(source);
-      // Sleep for 1 second before processing next source (rate limiting & load distribution)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  } catch (err) {
-    console.error('[Background Job] Fatal error:', err);
-  }
-}
-
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -475,6 +391,21 @@ async function startServer() {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
   };
+
+  const crawlerRegistry = createCrawlerRuntimeRegistry({
+    isSupabaseConfigured,
+    supabase,
+    client,
+    scrapeYouTubePost,
+    createForumThread,
+    logEvent,
+    imageUrlToBase64,
+    truncateText,
+    validateYouTubeUrl,
+    getSafeErrorMessage,
+    maxSourcesPerGuild: MAX_SOURCES_PER_GUILD,
+    defaultPageLimit: DEFAULT_PAGE_LIMIT,
+  });
 
   // --- API Routes ---
 
@@ -943,104 +874,34 @@ async function startServer() {
 
   // Get sources with pagination
   app.get('/api/sources', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    if (!isSupabaseConfigured) return res.json({ sources: [], total: 0, page: 1, limit: DEFAULT_PAGE_LIMIT });
-    try {
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(DEFAULT_PAGE_LIMIT, parseInt(req.query.limit as string) || DEFAULT_PAGE_LIMIT);
-      const offset = (page - 1) * limit;
-
-      // Get total count
-      const { count } = await supabase
-        .from('sources')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', req.user.id);
-
-      // Get paginated data
-      const { data: sources, error } = await supabase
-        .from('sources')
-        .select('*')
-        .eq('user_id', req.user.id)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      if (error) {
-        console.warn('Warning getting sources (table might not exist):', error.message);
-        return res.json({ sources: [], total: 0, page, limit });
-      }
-      res.json({ sources: sources || [], total: count || 0, page, limit });
-    } catch (error: unknown) {
-      const safeMsg = getSafeErrorMessage(error, 'GET /api/sources');
-      res.status(500).json({ error: safeMsg });
+    if (!isBackendFeatureEnabled('sources')) {
+      return res.status(410).json({ error: 'sources_feature_disabled' });
     }
+    return crawlerRegistry.getSources(req, res);
   });
 
   // Add source
   app.post('/api/sources', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    if (!isSupabaseConfigured) return res.status(500).json({ error: 'Supabase is not configured' });
-    try {
-      const { url, name, guildId, channelId, guildName, channelName } = req.body;
-      if (!url || !name || !guildId || !channelId) return res.status(400).json({ error: 'All fields are required' });
-      
-      // Validate YouTube URL format
-      const urlValidation = validateYouTubeUrl(url);
-      if (!urlValidation.valid) {
-        return res.status(400).json({ error: urlValidation.message || '유효하지 않은 YouTube URL입니다.' });
-      }
-      
-      // Check limit per guild
-      const { count, error: countError } = await supabase
-        .from('sources')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', req.user.id)
-        .eq('guild_id', guildId);
-        
-      if (countError) throw countError;
-      if (count !== null && count >= MAX_SOURCES_PER_GUILD) {
-        return res.status(403).json({ error: `해당 서버에는 최대 ${MAX_SOURCES_PER_GUILD}개까지만 알림을 등록할 수 있습니다. (추후 프리미엄 기능으로 해금 예정 🚀)` });
-      }
-
-      const { data, error } = await supabase.from('sources').insert([{ 
-        name, url, user_id: req.user.id,
-        guild_id: guildId, channel_id: channelId,
-        guild_name: guildName, channel_name: channelName
-      }]).select();
-      if (error) throw error;
-      res.json({ id: data[0].id, url, name });
-    } catch (error: unknown) {
-      const safeMsg = getSafeErrorMessage(error, 'POST /api/sources');
-      console.error('Error adding source:', error);
-      res.status(500).json({ error: safeMsg });
+    if (!isBackendFeatureEnabled('sources')) {
+      return res.status(410).json({ error: 'sources_feature_disabled' });
     }
+    return crawlerRegistry.addSource(req, res);
   });
 
   // Delete source
   app.delete('/api/sources/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    if (!isSupabaseConfigured) return res.status(500).json({ error: 'Supabase is not configured' });
-    try {
-      const { error } = await supabase.from('sources').delete().eq('id', req.params.id).eq('user_id', req.user.id);
-      if (error) throw error;
-      res.json({ success: true });
-    } catch (error: unknown) {
-      const safeMsg = getSafeErrorMessage(error, 'DELETE /api/sources');
-      console.error('Error deleting source:', error);
-      res.status(500).json({ error: safeMsg });
+    if (!isBackendFeatureEnabled('sources')) {
+      return res.status(410).json({ error: 'sources_feature_disabled' });
     }
+    return crawlerRegistry.deleteSource(req, res);
   });
 
   // Update source name
   app.put('/api/sources/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    if (!isSupabaseConfigured) return res.status(500).json({ error: 'Supabase is not configured' });
-    try {
-      const { name } = req.body;
-      if (!name) return res.status(400).json({ error: 'Name is required' });
-      const { error } = await supabase.from('sources').update({ name }).eq('id', req.params.id).eq('user_id', req.user.id);
-      if (error) throw error;
-      res.json({ success: true });
-    } catch (error: unknown) {
-      const safeMsg = getSafeErrorMessage(error, 'PUT /api/sources');
-      console.error('Error updating source:', error);
-      res.status(500).json({ error: safeMsg });
+    if (!isBackendFeatureEnabled('sources')) {
+      return res.status(410).json({ error: 'sources_feature_disabled' });
     }
+    return crawlerRegistry.updateSource(req, res);
   });
 
   // Get settings
@@ -1283,49 +1144,10 @@ interface DiscordGuild {
 
   // Test Trigger (Simulates finding a new YouTube post)
   app.post('/api/test-trigger', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { url, channelId } = req.body;
-      
-      if (!url) {
-        return res.status(400).json({ error: 'YouTube URL is required.' });
-      }
-      
-      if (!channelId) {
-        return res.status(400).json({ error: 'Channel ID is required. Please select a channel first.' });
-      }
-      
-      // Validate YouTube URL
-      const urlValidation = validateYouTubeUrl(url);
-      if (!urlValidation.valid) {
-        return res.status(400).json({ error: urlValidation.message || '유효하지 않은 YouTube URL입니다.' });
-      }
-
-      // 1. 봇이 백그라운드에서 URL을 크롤링하여 텍스트와 이미지 추출
-      const { content, imageUrl, author } = await scrapeYouTubePost(url);
-      
-      // 2. 이미지가 있다면 다운로드하여 Base64로 변환 (Discord.js 전송용)
-      let imageBase64 = undefined;
-      if (imageUrl) {
-        imageBase64 = await imageUrlToBase64(imageUrl);
-      }
-
-      // 3. 디스코드 포럼에 전송할 제목과 내용 구성
-      const title = `${author}님의 새 커뮤니티 게시글`;
-      
-      // Discord message content limit is 2000 characters.
-      // We need to truncate the content if it's too long, leaving room for the URL.
-      const maxContentLength = 1800; // Leave 200 chars for the URL and formatting
-      const truncatedContent = truncateText(content || '내용 없음', maxContentLength);
-      
-      const fullContent = `${truncatedContent}\n\n🔗 원본 링크: ${url}`;
-
-      await createForumThread(channelId, title, fullContent, imageBase64, req.user.id);
-      res.json({ success: true, message: 'Thread created successfully!' });
-    } catch (error: unknown) {
-      const safeMsg = getSafeErrorMessage(error, 'POST /api/test-trigger');
-      console.error('Error in test-trigger:', error);
-      res.status(500).json({ error: safeMsg });
+    if (!isBackendFeatureEnabled('youtubeCrawler')) {
+      return res.status(410).json({ error: 'youtube_crawler_feature_disabled' });
     }
+    return crawlerRegistry.triggerTest(req, res);
   });
 
   // --- Vite Integration ---
@@ -1348,18 +1170,17 @@ interface DiscordGuild {
   console.log(`[RENDER_EVENT] BOT_TOKEN_PRESENT value=${!!token}`);
   console.log(`[RENDER_EVENT] BOT_ENV_FLAGS messageContent=${messageContentEnv ?? 'undefined'} guildPresences=${guildPresencesEnv ?? 'undefined'} loginTimeoutMs=${loginTimeoutMs}`);
 
-  // Schedule background job using cron to ensure it keeps running even if errors occur
-  // Runs every 10 minutes
-  cron.schedule('*/10 * * * *', async () => {
-    try {
-      await runBackgroundJob();
-    } catch (err) {
-      console.error('[Background Job] Cron execution error:', err);
-    }
-  });
+  if (isBackendFeatureEnabled('crawlerScheduler')) {
+    cron.schedule('*/10 * * * *', async () => {
+      try {
+        await crawlerRegistry.runBackgroundJob();
+      } catch (err) {
+        console.error('[Background Job] Cron execution error:', err);
+      }
+    });
 
-  // Run job once at startup after short delay to ensure bot is ready
-  setTimeout(() => runBackgroundJob().catch(err => console.error('[Background Job] Initial run error:', err)), 10000);
+    setTimeout(() => crawlerRegistry.runBackgroundJob().catch(err => console.error('[Background Job] Initial run error:', err)), 10000);
+  }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[RENDER_EVENT] SERVER_READY port=${PORT}`);
