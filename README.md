@@ -15,11 +15,7 @@ View your app in AI Studio: https://ai.studio/apps/2ac797fc-25e2-4c9c-9338-34844
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. (Optional) For more reliable YouTube scraping you can also provide `YOUTUBE_API_KEY`.
-   - HTML 파싱 대신 공식 API나 RSS를 사용할 때 유용합니다.
-   - 환경 변수에 키가 설정되면 서버는 `src/backend/legacy/youtubeScraper.ts`에서 API 기반 로직을
-     우선적으로 시도하고, 실패하면 기존 HTML 스크래핑으로 폴백합니다.
-4. Run the app:
+3. Run the app:
    `npm run dev`
 
 ### Frontend API Configuration
@@ -37,24 +33,15 @@ If `VITE_API_BASE` is not provided the client will use relative paths, which
 works for local development when the server and frontend are on the same
 origin.
 
-## 크롤러 견고성
+## 외부 레지스트리로 분리된 기능
 
-YouTube 사이트 구조는 자주 바뀌므로 HTML에서 데이터를 추출하는 방식은 매우
-취약합니다. 현재 구현은 `ytInitialData`를 정규식으로 찾는 데 의존하고 있어,
-YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질 수 있습니다.
+아래 기능은 현재 저장소에서 제거되었고 외부 레지스트리/모듈로 이전되었습니다.
 
-### 개선 권장 사항
+- YouTube 크롤링 실행 경로
+- `/api/sources` 등록/수정/삭제/조회 API
+- `/api/test-trigger` 테스트 트리거 API
 
-1. **공식 API 사용** – `YOUTUBE_API_KEY`를 설정한 뒤 `src/backend/legacy/youtubeScraper.ts`의 API
-   호출 로직을 실제 요구사항에 맞게 수정하세요. 커뮤니티 게시물은 API 접근이
-   제한적일 수 있으니 `activities` 엔드포인트나 RSS 피드를 확인합니다.
-2. **RSS 피드** – 채널 업로드/게시물 피드를 통해 변경사항을 감시할 수
-   있습니다. 예: `https://www.youtube.com/feeds/videos.xml?channel_id=...`.
-3. **예외 처리 강화** – HTML 파싱이 실패할 경우 알림을 보내거나 관리자에게
-   로그를 남겨 즉시 문제를 파악할 수 있게 합니다.
-
-필요하다면 외부 크롤러 서비스나 Cloud Pub/Sub 같은 구조를 이용해 더
-견고한 아키텍처를 구축하세요.
+현재 서버는 해당 엔드포인트 호출 시 `410 Gone`과 함께 이전 안내 코드만 반환합니다.
 
 ## 배포 및 환경 변수 가이드
 
