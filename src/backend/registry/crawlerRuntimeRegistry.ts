@@ -1,14 +1,30 @@
 import { type Response } from 'express';
-import { type AuthenticatedRequest, type Source } from '../../types';
+import type { Client } from 'discord.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { type AuthenticatedRequest, type Source, type ScrapedYouTubePost } from '../../types';
+
+type SourceMutationBody = {
+  url?: string;
+  name?: string;
+  guildId?: string;
+  channelId?: string;
+  guildName?: string;
+  channelName?: string;
+};
+
+type TriggerTestBody = {
+  url?: string;
+  channelId?: string;
+};
 
 export type CrawlerRuntimeRegistryDeps = {
   isSupabaseConfigured: boolean;
-  supabase: any;
-  client: any;
-  scrapeYouTubePost: (url: string) => Promise<{ content: string; imageUrl: string; author: string }>;
+  supabase: SupabaseClient;
+  client: Pick<Client, 'isReady'>;
+  scrapeYouTubePost: (url: string) => Promise<ScrapedYouTubePost>;
   createForumThread: (forumChannelId: string, title: string, content: string, imageBase64?: string, user_id?: string) => Promise<unknown>;
   logEvent: (message: string, type: 'info' | 'error' | 'success', user_id?: string) => Promise<unknown>;
-  imageUrlToBase64: (url: string) => Promise<string>;
+  imageUrlToBase64: (url: string) => Promise<string | undefined>;
   truncateText: (text: string, maxLength: number) => string;
   validateYouTubeUrl: (url: string) => { valid: boolean; message?: string };
   getSafeErrorMessage: (error: unknown, context: string) => string;
@@ -135,7 +151,7 @@ export const createCrawlerRuntimeRegistry = (deps: CrawlerRuntimeRegistryDeps) =
     if (!deps.isSupabaseConfigured) return res.status(500).json({ error: 'Supabase is not configured' });
 
     try {
-      const { url, name, guildId, channelId, guildName, channelName } = req.body;
+      const { url, name, guildId, channelId, guildName, channelName } = (req.body || {}) as SourceMutationBody;
       if (!url || !name || !guildId || !channelId) return res.status(400).json({ error: 'All fields are required' });
 
       const urlValidation = deps.validateYouTubeUrl(url);
@@ -196,7 +212,7 @@ export const createCrawlerRuntimeRegistry = (deps: CrawlerRuntimeRegistryDeps) =
     if (!deps.isSupabaseConfigured) return res.status(500).json({ error: 'Supabase is not configured' });
 
     try {
-      const { name } = req.body;
+      const { name } = (req.body || {}) as SourceMutationBody;
       if (!name) return res.status(400).json({ error: 'Name is required' });
       const { error } = await deps.supabase.from('sources').update({ name }).eq('id', req.params.id).eq('user_id', req.user.id);
       if (error) throw error;
@@ -210,7 +226,7 @@ export const createCrawlerRuntimeRegistry = (deps: CrawlerRuntimeRegistryDeps) =
 
   const triggerTest = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { url, channelId } = req.body;
+      const { url, channelId } = (req.body || {}) as TriggerTestBody;
 
       if (!url) {
         return res.status(400).json({ error: 'YouTube URL is required.' });

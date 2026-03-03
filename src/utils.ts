@@ -1,5 +1,8 @@
 // Utility helpers shared across server code
 
+const IMAGE_FETCH_TIMEOUT_MS = Number(process.env.IMAGE_FETCH_TIMEOUT_MS || 10000);
+const IMAGE_FETCH_MAX_BYTES = Number(process.env.IMAGE_FETCH_MAX_BYTES || 8000000);
+
 /**
  * Validate if URL is a valid YouTube URL
  * Returns { valid: boolean, message?: string }
@@ -57,16 +60,36 @@ export function validateYouTubeUrl(url: string): { valid: boolean; message?: str
  * Download an image URL and return a data URI string (base64) or undefined if failed
  */
 export async function imageUrlToBase64(imageUrl: string): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), Math.max(3000, IMAGE_FETCH_TIMEOUT_MS));
+
   try {
-    const imgRes = await fetch(imageUrl);
+    const imgRes = await fetch(imageUrl, {
+      signal: controller.signal,
+    });
     if (!imgRes.ok) return undefined;
+
+    const contentLengthRaw = imgRes.headers.get('content-length');
+    const contentLength = contentLengthRaw ? Number(contentLengthRaw) : NaN;
+    if (Number.isFinite(contentLength) && contentLength > IMAGE_FETCH_MAX_BYTES) {
+      console.warn('[utils] imageUrlToBase64 skipped: content-length too large', contentLength);
+      return undefined;
+    }
+
     const arrayBuffer = await imgRes.arrayBuffer();
+    if (arrayBuffer.byteLength > IMAGE_FETCH_MAX_BYTES) {
+      console.warn('[utils] imageUrlToBase64 skipped: downloaded payload too large', arrayBuffer.byteLength);
+      return undefined;
+    }
+
     const buffer = Buffer.from(arrayBuffer);
     const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
     return `data:${contentType};base64,${buffer.toString('base64')}`;
   } catch (e) {
     console.warn('[utils] imageUrlToBase64 failed', e);
     return undefined;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

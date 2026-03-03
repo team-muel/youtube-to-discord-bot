@@ -35,4 +35,4 @@ export const getMuelMotionCssVars = (tokens: MuelMotionTokens): CSSProperties =>
   '--muel-visual-radar-pulse-min-opacity': `${tokens.visualRadarCorePulseMinOpacity}`,
   '--muel-visual-radar-pulse-max-opacity': `${tokens.visualRadarCorePulseMaxOpacity}`,
   '--muel-visual-radar-pulse-scale': `${tokens.visualRadarCorePulseScale}`,
-});
+} as CSSProperties);

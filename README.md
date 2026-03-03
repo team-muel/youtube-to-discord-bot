@@ -79,6 +79,12 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
   - `SUPABASE_SERVICE_ROLE_KEY` (절대 클라이언트에 노출 금지)
   - `SUPABASE_ANON_KEY` (선택)
   - `DISCORD_TOKEN`
+  - `OAUTH_REDIRECT_ALLOWLIST` (필수 권장, 예: `https://your-frontend.example.com`)
+  - `JSON_BODY_LIMIT` (선택, 기본 `15mb`)
+  - `YOUTUBE_FETCH_TIMEOUT_MS` (선택, 기본 `12000`)
+  - `YOUTUBE_HTML_MAX_BYTES` (선택, 기본 `5000000`)
+  - `IMAGE_FETCH_TIMEOUT_MS` (선택, 기본 `10000`)
+  - `IMAGE_FETCH_MAX_BYTES` (선택, 기본 `8000000`)
   - `DATABASE_URL` (직접 DB 연결 시)
   - `NODE_ENV`, `PORT`
 

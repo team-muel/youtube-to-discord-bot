@@ -13,6 +13,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  type MessageCreateOptions,
 } from 'discord.js';
 import { lookup, setDefaultResultOrder } from 'node:dns';
 import { randomBytes } from 'node:crypto';
@@ -369,6 +370,29 @@ const PRESET_RESTORE_BUTTON_PREFIX = 'preset_restore';
 const PRESET_HISTORY_PAGE_BUTTON_PREFIX = 'preset_history_page';
 const BOT_STATUS_REFRESH_BUTTON_PREFIX = 'bot_status_refresh';
 const PRESET_HISTORY_PAGE_SIZE = 5;
+
+type PresetHistoryRow = {
+  id: string;
+  source: string;
+  actor_username: string;
+  created_at: string;
+  metadata?: unknown;
+};
+
+type PresetRestoreResult = {
+  ok: boolean;
+  message: string;
+};
+
+type PresetCommandName =
+  | 'bot-status'
+  | 'bot-reconnect'
+  | 'preset-history'
+  | 'preset-restore'
+  | 'preset-upsert'
+  | 'preset-upsert-from-history';
+
+type PresetCommandHandler = (interaction: ChatInputCommandInteraction) => Promise<void>;
 
 const toDurationText = (diffMs: number) => {
   const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
@@ -766,13 +790,7 @@ const ensurePresetAdminInteraction = async (interaction: ChatInputCommandInterac
   return true;
 };
 
-const formatHistoryRowsForDiscord = (rows: Array<{
-  id: string;
-  source: string;
-  actor_username: string;
-  created_at: string;
-  metadata?: unknown;
-}>, startIndex = 0) => {
+const formatHistoryRowsForDiscord = (rows: PresetHistoryRow[], startIndex = 0) => {
   return rows
     .map((row, index) => {
       const restoredFrom =
@@ -787,13 +805,7 @@ const formatHistoryRowsForDiscord = (rows: Array<{
 
 const buildPresetHistoryReply = (params: {
   presetKey: string;
-  rows: Array<{
-    id: string;
-    source: string;
-    actor_username: string;
-    created_at: string;
-    metadata?: unknown;
-  }>;
+  rows: PresetHistoryRow[];
   requesterUserId: string;
   pageIndex: number;
   limit: number;
@@ -865,7 +877,8 @@ const handlePresetHistoryCommand = async (interaction: ChatInputCommandInteracti
     .select('id,source,actor_username,created_at,metadata')
     .eq('preset_key', presetKey)
     .order('created_at', { ascending: false })
-    .limit(Math.max(1, Math.min(20, limit)));
+    .limit(Math.max(1, Math.min(20, limit)))
+    .returns<PresetHistoryRow[]>();
 
   if (error) {
     await interaction.editReply(`이력 조회 실패: ${error.message}`);
@@ -1051,7 +1064,7 @@ const executePresetRestore = async (params: {
   actorUserId: string;
   actorUsername: string;
   via: 'discord_slash' | 'discord_button';
-}) => {
+}): Promise<PresetRestoreResult> => {
   const lockKey = `restore:${params.actorUserId}:${params.presetKey}:${params.historyId}`;
   const remainingSec = acquirePresetMutationLock(lockKey);
   if (remainingSec > 0) {
@@ -1288,7 +1301,8 @@ const handlePresetHistoryPageButton = async (interaction: ButtonInteraction) => 
     .select('id,source,actor_username,created_at,metadata')
     .eq('preset_key', parsed.presetKey)
     .order('created_at', { ascending: false })
-    .limit(normalizedLimit);
+    .limit(normalizedLimit)
+    .returns<PresetHistoryRow[]>();
 
   if (error) {
     await interaction.editReply({
@@ -1518,36 +1532,24 @@ const handlePresetUpsertFromHistoryCommand = async (interaction: ChatInputComman
   }
 };
 
+const presetCommandHandlers: Record<PresetCommandName, PresetCommandHandler> = {
+  'bot-status': handleBotStatusCommand,
+  'bot-reconnect': handleBotReconnectCommand,
+  'preset-history': handlePresetHistoryCommand,
+  'preset-restore': handlePresetRestoreCommand,
+  'preset-upsert': handlePresetUpsertCommand,
+  'preset-upsert-from-history': handlePresetUpsertFromHistoryCommand,
+};
+
+const isPresetCommandName = (commandName: string): commandName is PresetCommandName => {
+  return commandName in presetCommandHandlers;
+};
+
 client.on('interactionCreate', async (interaction: Interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'bot-status') {
-        await handleBotStatusCommand(interaction);
-        return;
-      }
-
-      if (interaction.commandName === 'bot-reconnect') {
-        await handleBotReconnectCommand(interaction);
-        return;
-      }
-
-      if (interaction.commandName === 'preset-history') {
-        await handlePresetHistoryCommand(interaction);
-        return;
-      }
-
-      if (interaction.commandName === 'preset-restore') {
-        await handlePresetRestoreCommand(interaction);
-        return;
-      }
-
-      if (interaction.commandName === 'preset-upsert') {
-        await handlePresetUpsertCommand(interaction);
-        return;
-      }
-
-      if (interaction.commandName === 'preset-upsert-from-history') {
-        await handlePresetUpsertFromHistoryCommand(interaction);
+      if (isPresetCommandName(interaction.commandName)) {
+        await presetCommandHandlers[interaction.commandName](interaction);
         return;
       }
     }
@@ -1707,7 +1709,7 @@ export async function createForumThread(forumChannelId: string, title: string, c
       throw new Error('Target channel is not a Forum or Text Channel.');
     }
 
-    const messageOptions: any = { content: content };
+    const messageOptions: MessageCreateOptions = { content };
     
     // If an image was pasted, convert base64 to a buffer and attach it
     if (imageBase64) {
@@ -1737,9 +1739,10 @@ export async function createForumThread(forumChannelId: string, title: string, c
 
     logEvent(`Created new thread: ${title}`, 'success', user_id);
     return thread;
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[Discord Bot] Error creating thread:', error);
-    logEvent(`Failed to create thread: ${error.message}`, 'error', user_id);
+    logEvent(`Failed to create thread: ${errorMessage}`, 'error', user_id);
     throw error;
   }
 }

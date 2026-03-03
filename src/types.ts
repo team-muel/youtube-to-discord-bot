@@ -25,6 +25,12 @@ export interface Source {
   created_at?: string;
 }
 
+export interface ScrapedYouTubePost {
+  content: string;
+  imageUrl: string;
+  author: string;
+}
+
 export interface SettingsRow {
   key: string;
   value: string;

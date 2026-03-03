@@ -24,11 +24,10 @@ const flushByKeepalive = () => {
     return;
   }
 
-  fetch('/api/benchmark/events', {
+  apiFetch('/api/benchmark/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ events: pending }),
-    credentials: 'include',
     keepalive: true,
   })
     .then((response) => {
