@@ -1,4 +1,4 @@
-import { scrapeYouTubePost } from './src/scraper.js';
+import { scrapeYouTubePost } from './src/backend/legacy/youtubeScraper.js';
 
 async function test() {
   try {

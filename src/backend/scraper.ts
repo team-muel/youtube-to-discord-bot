@@ -1,1 +1,1 @@
-export * from '../scraper';
+export * from './legacy/youtubeScraper';

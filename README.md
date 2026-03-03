@@ -17,7 +17,7 @@ View your app in AI Studio: https://ai.studio/apps/2ac797fc-25e2-4c9c-9338-34844
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. (Optional) For more reliable YouTube scraping you can also provide `YOUTUBE_API_KEY`.
    - HTML 파싱 대신 공식 API나 RSS를 사용할 때 유용합니다.
-   - 환경 변수에 키가 설정되면 서버는 `src/scraper.ts`에서 API 기반 로직을
+   - 환경 변수에 키가 설정되면 서버는 `src/backend/legacy/youtubeScraper.ts`에서 API 기반 로직을
      우선적으로 시도하고, 실패하면 기존 HTML 스크래핑으로 폴백합니다.
 4. Run the app:
    `npm run dev`
@@ -45,7 +45,7 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
 
 ### 개선 권장 사항
 
-1. **공식 API 사용** – `YOUTUBE_API_KEY`를 설정한 뒤 `src/scraper.ts`의 API
+1. **공식 API 사용** – `YOUTUBE_API_KEY`를 설정한 뒤 `src/backend/legacy/youtubeScraper.ts`의 API
    호출 로직을 실제 요구사항에 맞게 수정하세요. 커뮤니티 게시물은 API 접근이
    제한적일 수 있으니 `activities` 엔드포인트나 RSS 피드를 확인합니다.
 2. **RSS 피드** – 채널 업로드/게시물 피드를 통해 변경사항을 감시할 수
