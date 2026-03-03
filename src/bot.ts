@@ -1527,7 +1527,7 @@ const registerMuelCommand = async () => {
   const command = new SlashCommandBuilder()
     .setName('뮤엘')
     .setDescription('뮤엘 공식 사이트 링크를 안내합니다.');
-  await client.application?.commands.set([command]);
+  await client.application?.commands.set([command.toJSON()]);
   console.log('[RENDER_EVENT] BOT_COMMANDS_REGISTERED: /뮤엘');
 };
 
@@ -1540,49 +1540,12 @@ const handleMuelCommand = async (interaction: ChatInputCommandInteraction) => {
 
 client.on('interactionCreate', async (interaction: Interaction) => {
   try {
-    if (interaction.isChatInputCommand()) {
-      if (isPresetCommandName(interaction.commandName)) {
-        await presetCommandHandlers[interaction.commandName](interaction);
-        return;
-      }
-    }
-
-    if (interaction.isButton()) {
-      if (interaction.customId.startsWith(`${BOT_STATUS_REFRESH_BUTTON_PREFIX}|`)) {
-        await handleBotStatusRefreshButton(interaction);
-        return;
-      }
-
-      if (interaction.customId.startsWith(`${PRESET_RESTORE_BUTTON_PREFIX}|`)) {
-        await handlePresetRestoreButton(interaction);
-        return;
-      }
-
-      if (interaction.customId.startsWith(`${PRESET_HISTORY_PAGE_BUTTON_PREFIX}|`)) {
-        await handlePresetHistoryPageButton(interaction);
-        return;
-      }
-
+    if (interaction.isChatInputCommand() && interaction.commandName === '뮤엘') {
+      await handleMuelCommand(interaction as ChatInputCommandInteraction);
       return;
     }
   } catch (error) {
     console.error('[Discord Bot] Slash command handling failed:', error);
-    if (!interaction.isRepliable()) {
-      return;
-    }
-
-    const alreadyDeferred = 'deferred' in interaction && Boolean(interaction.deferred);
-    const alreadyReplied = 'replied' in interaction && Boolean(interaction.replied);
-
-    if (alreadyDeferred || alreadyReplied) {
-      await interaction.editReply('명령 처리 중 오류가 발생했습니다.').catch(() => undefined);
-      return;
-    }
-
-    await interaction.reply({
-      content: '명령 처리 중 오류가 발생했습니다.',
-      ephemeral: true,
-    }).catch(() => undefined);
   }
 });
 
@@ -1600,7 +1563,7 @@ client.on('clientReady', () => {
   console.log(`✅ [SUCCESS] Logged in as ${client.user?.tag}`);
   logEvent('Bot started successfully', 'info');
 
-  void registerPresetCommands().catch((error) => {
+  void registerMuelCommand().catch((error) => {
     console.error('[Discord Bot] Failed to register slash commands:', error);
     logEvent(`Slash command register failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
   });
