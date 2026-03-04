@@ -1646,7 +1646,6 @@ export async function logEvent(message: string, type: 'info' | 'error' | 'succes
   } catch (err) {
     console.error('Failed to write log to DB:', err);
   }
-}
 
 // Function to trigger a new forum post
 export async function createForumThread(forumChannelId: string, title: string, content: string, imageBase64?: string, user_id?: string) {

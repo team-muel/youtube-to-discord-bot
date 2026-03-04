@@ -14,6 +14,7 @@ if (!isSupabaseConfigured) {
   console.warn('⚠️ Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment variables.');
 }
 
+export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseKey || 'placeholder'
 );
