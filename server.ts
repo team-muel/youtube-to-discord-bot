@@ -1,4 +1,6 @@
 
+
+import './bot'; // 서버가 켜질 때 bot.ts도 함께 실행시켜 스위치를 켭니다.
 import { createApp } from './src/app';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
