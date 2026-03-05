@@ -5,17 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:full": "concurrently \"vite\" \"tsx server.ts\"",
-    "dev:server": "tsx server.ts",
-    "dev:bot": "tsx bot.ts",
     "build": "vite build",
-    "start": "npm run start:server",
-    "start:server": "tsx server.ts",
-    "start:bot": "tsx bot.ts",
+    "start": "vite preview",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "seed:research-presets": "tsx scripts/seed-research-presets.ts",
     "check:tailwind-binding": "node -e \"require('@tailwindcss/oxide'); console.log('tailwind oxide binding ok')\""
   },
   "dependencies": {
