@@ -23,5 +23,18 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "strict": true
-  }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "test.ts",
+    "test_scrape.ts"
+  ],
+  "exclude": [
+    "moved-bot-repo/**",
+    "src/app.ts",
+    "node_modules",
+    "dist"
+  ]
 }

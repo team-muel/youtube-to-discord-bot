@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 import { ResearchPageLayout } from '../components/sections/ResearchPageLayout';
+import { apiFetch } from '../config';
 
 export const EmbeddedApp = () => {
   const [authStatus, setAuthStatus] = useState<string | null>(null);
@@ -13,28 +14,24 @@ export const EmbeddedApp = () => {
     const doAuthenticate = async () => {
       try {
         await sdk.ready();
-        // 먼저 SDK로 현재 사용자를 가져와 세션을 동기화 시도
-        try {
-          const u = (await sdk.commands.getUser()) as any;
-          if (u && mounted) {
-            setUser({ id: u.id, username: u.username, avatar: u.avatar ?? null });
-            setAuthStatus('ok');
-            // (선택) 서버와 동기화하려면 인증 코드 흐름도 실행할 수 있음
-            return;
-          }
-        } catch (e) {
-          // getUser may fail in some contexts; fall back to authenticate
+        const result = await sdk.commands.authenticate({});
+        const code = (result as any)?.code as string | undefined;
+
+        if (mounted && (result as any)?.user) {
+          const sdkUser = (result as any).user;
+          setUser({
+            id: sdkUser.id,
+            username: sdkUser.username,
+            avatar: sdkUser.avatar ?? null,
+          });
         }
 
-        // fallback: perform authenticate flow to exchange code on server
-        const result = await sdk.commands.authenticate();
-        const code = (result as any)?.code as string | undefined;
         if (!code) {
           if (mounted) setAuthStatus('no_code');
           return;
         }
 
-        const resp = await fetch('/api/auth/sdk', {
+        const resp = await apiFetch('/api/auth/sdk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code }),
