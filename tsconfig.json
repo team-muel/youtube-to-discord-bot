@@ -35,6 +35,7 @@
     "moved-bot-repo/**",
     "src/app.ts",
     "src/scraper.ts",
+    "src/supabase.ts",
     "src/backend/**",
     "src/middleware/**",
     "src/routes/**",
