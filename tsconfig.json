@@ -34,6 +34,14 @@
   "exclude": [
     "moved-bot-repo/**",
     "src/app.ts",
+    "src/scraper.ts",
+    "src/backend/**",
+    "src/middleware/**",
+    "src/routes/**",
+    "src/types.ts",
+    "src/types/express.d.ts",
+    "test.ts",
+    "test_scrape.ts",
     "node_modules",
     "dist"
   ]

@@ -61,6 +61,11 @@ npm run lint
 npm run lint:backend
 ```
 
+참고:
+
+- 프론트 `npm run lint`는 루트의 레거시 서버 잔존 파일(`src/app.ts`, `src/routes/**` 등)을 제외하고 UI 코드만 검사합니다.
+- 백엔드 타입 검사는 `npm run lint:backend`로 `moved-bot-repo` 기준에서 수행합니다.
+
 ## 운영 원칙
 
 - 프론트는 `VITE_*` 공개 변수만 사용

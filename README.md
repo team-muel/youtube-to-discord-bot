@@ -103,6 +103,7 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
   - `VITE_SUPABASE_URL`
   - `VITE_SUPABASE_ANON_KEY`
 - 서버/봇(Render, 비공개):
+  - `START_BOT` (기본 `true`, API-only 운영 시 `false`)
   - `SUPABASE_URL`
   - `SUPABASE_SERVICE_ROLE_KEY` (절대 클라이언트에 노출 금지)
   - `SUPABASE_ANON_KEY` (선택)

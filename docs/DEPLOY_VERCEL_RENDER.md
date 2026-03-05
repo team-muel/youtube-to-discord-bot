@@ -38,8 +38,10 @@
 ### 필수 환경변수
 
 - `NODE_ENV=production`
+- `START_BOT=true` (API-only 운영 시 `false`)
 - `APP_BASE_URL=https://<vercel-domain>`
 - `OAUTH_REDIRECT_ALLOWLIST=https://<vercel-domain>`
+- `CORS_ALLOWLIST=https://<vercel-domain>,http://localhost:5173` (선택)
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_TOKEN`
