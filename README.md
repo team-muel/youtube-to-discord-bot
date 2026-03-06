@@ -36,6 +36,12 @@ View your app in AI Studio: https://ai.studio/apps/2ac797fc-25e2-4c9c-9338-34844
 - [docs/SEPARATED_DEVELOPMENT.md](docs/SEPARATED_DEVELOPMENT.md)
 - [docs/DEPLOY_VERCEL_RENDER.md](docs/DEPLOY_VERCEL_RENDER.md)
 
+## UI/UX 리부트 문서
+
+- [docs/UIUX_REBOOT_EXECUTION_PLAN.md](docs/UIUX_REBOOT_EXECUTION_PLAN.md)
+- [docs/UIUX_REBOOT_CHECKLIST.md](docs/UIUX_REBOOT_CHECKLIST.md)
+- [docs/FRED_PLAYGROUND_API_CONTRACT.md](docs/FRED_PLAYGROUND_API_CONTRACT.md)
+
 ## Run Locally
 
 **Prerequisites:** Node.js
@@ -64,6 +70,18 @@ VITE_API_BASE=https://your-backend.example.com
 If `VITE_API_BASE` is not provided the client will use relative paths, which
 works for local development when the server and frontend are on the same
 origin.
+
+### FRED Macro Indicators Configuration
+
+The dashboard macro panel can load live U.S. macro indicators from FRED.
+Set the Vite environment variable below to enable live mode:
+
+```bash
+VITE_FRED_API_KEY=your_fred_api_key
+```
+
+If `VITE_FRED_API_KEY` is missing or FRED is unavailable, the UI falls back to
+static indicator values so the dashboard still renders.
 
 ## 크롤러 견고성
 
