@@ -6,11 +6,13 @@ export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 export class ApiError extends Error {
   status: number;
+  details?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, details?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -42,7 +44,25 @@ export function apiFetch(input: string, init?: RequestInit) {
 export async function apiFetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(input, init);
   if (!response.ok) {
-    throw new ApiError(`API request failed: ${response.status}`, response.status);
+    let details = '';
+
+    try {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const payload = (await response.json()) as { error?: string; message?: string };
+        details = String(payload.error || payload.message || '').trim();
+      } else {
+        details = (await response.text()).trim();
+      }
+    } catch {
+      details = '';
+    }
+
+    const message = details
+      ? `API request failed: ${response.status} (${details})`
+      : `API request failed: ${response.status}`;
+
+    throw new ApiError(message, response.status, details || undefined);
   }
   return (await response.json()) as T;
 }

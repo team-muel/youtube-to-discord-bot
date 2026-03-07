@@ -156,6 +156,7 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
 ### 2) 환경 변수(권장 이름)
 
 - 클라이언트(Vercel, 반드시 `VITE_` 접두사 사용):
+  - `VITE_API_BASE` (예: `https://<render-backend-domain>`)
   - `VITE_SUPABASE_URL`
   - `VITE_SUPABASE_ANON_KEY`
 - 서버/봇(Render, 비공개):
@@ -164,7 +165,8 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
   - `SUPABASE_SERVICE_ROLE_KEY` (절대 클라이언트에 노출 금지)
   - `SUPABASE_ANON_KEY` (선택)
   - `DISCORD_TOKEN`
-  - `OAUTH_REDIRECT_ALLOWLIST` (필수 권장, 예: `https://your-frontend.example.com`)
+  - `APP_BASE_URL` (예: `https://<vercel-frontend-domain>`)
+  - `OAUTH_REDIRECT_ALLOWLIST` (권장 필수, 예: `https://<render-backend-domain>,https://<vercel-frontend-domain>`)
   - `JSON_BODY_LIMIT` (선택, 기본 `15mb`)
   - `YOUTUBE_FETCH_TIMEOUT_MS` (선택, 기본 `12000`)
   - `YOUTUBE_HTML_MAX_BYTES` (선택, 기본 `5000000`)
@@ -174,6 +176,11 @@ YouTube가 내부 스크립트 형식을 수정하는 즉시 크롤러가 깨질
   - `NODE_ENV`, `PORT`
 
 보안 원칙: 서비스 역할 키(`SUPABASE_SERVICE_ROLE_KEY`)는 Render와 CI(마이그레이션 실행 전용)에서만 사용하고, Vercel에는 넣지 마세요.
+
+OAuth 운영 체크:
+
+- Discord Developer Portal OAuth2 Redirects에 `https://<render-backend-domain>/auth/callback`를 정확히 등록해야 합니다.
+- Vercel의 `VITE_API_BASE`가 Render를 가리키지 않으면 프론트에서 `/api/auth/*`가 잘못된 origin으로 호출됩니다.
 
 ### 3) `package.json` 스크립트(이미 추가됨)
 

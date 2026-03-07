@@ -28,6 +28,25 @@ type AuthUrlResponse = {
 
 type AuthFlowLevel = 'progress' | 'success' | 'error';
 
+const resolveLoopbackFallbackRedirectUri = (redirectUri: string) => {
+  try {
+    const url = new URL(redirectUri);
+    if (url.hostname === 'localhost') {
+      url.hostname = '127.0.0.1';
+      return url.toString();
+    }
+
+    if (url.hostname === '127.0.0.1') {
+      url.hostname = 'localhost';
+      return url.toString();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
 const resolveOAuthCallbackUri = () => {
   const fallback = `${window.location.origin}/auth/callback`;
   if (!API_BASE) {
@@ -198,9 +217,25 @@ export default function App() {
       authLoginIntentRef.current = true;
       showAuthFlowMessage('Discord 로그인 창을 준비하고 있습니다...', 'progress');
 
+      const requestAuthUrl = async (redirectUri: string) => {
+        const query = new URLSearchParams({ redirectUri });
+        return apiFetchJson<AuthUrlResponse>(`/api/auth/url?${query.toString()}`);
+      };
+
       const redirectUri = resolveOAuthCallbackUri();
-      const query = new URLSearchParams({ redirectUri });
-      const data = await apiFetchJson<AuthUrlResponse>(`/api/auth/url?${query.toString()}`);
+      let data: AuthUrlResponse;
+
+      try {
+        data = await requestAuthUrl(redirectUri);
+      } catch (error) {
+        const fallbackRedirectUri = resolveLoopbackFallbackRedirectUri(redirectUri);
+        if (!(error instanceof ApiError) || error.status !== 400 || !fallbackRedirectUri) {
+          throw error;
+        }
+
+        // Common local-dev mismatch: localhost vs 127.0.0.1 origin allowlist.
+        data = await requestAuthUrl(fallbackRedirectUri);
+      }
 
       if (!data.url) {
         throw new Error('OAuth URL is empty');
@@ -230,12 +265,21 @@ export default function App() {
       window.setTimeout(() => window.clearInterval(watch), 120000);
     } catch (error) {
       authLoginIntentRef.current = false;
+
       if (popup && !popup.closed) {
-        popup.close();
+        popup.document.title = 'MUEL Discord Login Error';
+        popup.document.body.innerHTML = `
+          <div style="font:14px/1.45 sans-serif; padding: 16px; color: #1f2937;">
+            <h1 style="font-size: 16px; margin: 0 0 8px;">로그인을 시작하지 못했습니다.</h1>
+            <p style="margin: 0 0 8px;">서버 OAuth 설정 또는 redirect allowlist를 확인해 주세요.</p>
+            <p style="margin: 0; color: #6b7280;">이 창은 자동으로 닫히지 않습니다. 설정 확인 후 다시 시도해 주세요.</p>
+          </div>
+        `;
       }
 
       if (error instanceof ApiError && error.status === 400) {
-        showAuthFlowMessage('로그인을 시작할 수 없습니다. 서버의 OAuth redirect allowlist 설정을 확인해 주세요.', 'error', 9000);
+        const detail = error.details ? ` (${error.details})` : '';
+        showAuthFlowMessage(`로그인을 시작할 수 없습니다. 서버의 OAuth redirect allowlist 설정을 확인해 주세요.${detail}`, 'error', 10000);
       } else {
         showAuthFlowMessage('로그인 창을 열지 못했습니다. 팝업 차단 또는 네트워크 상태를 확인해 주세요.', 'error', 9000);
       }
@@ -244,9 +288,18 @@ export default function App() {
   }, [checkAuth, showAuthFlowMessage]);
 
   const handleLogout = useCallback(async () => {
-    await apiFetch('/api/auth/logout', { method: 'POST' });
-    setUser(null);
-  }, []);
+    try {
+      const response = await apiFetch('/api/auth/logout', { method: 'POST' });
+      if (!response.ok) {
+        throw new ApiError(`Logout failed: ${response.status}`, response.status);
+      }
+
+      setUser(null);
+      showAuthFlowMessage('로그아웃되었습니다.', 'success', 3000);
+    } catch {
+      showAuthFlowMessage('로그아웃에 실패했습니다. 잠시 후 다시 시도해 주세요.', 'error', 7000);
+    }
+  }, [showAuthFlowMessage]);
 
   useEffect(() => {
     applySurfaceMode(getStoredSurfaceMode());
