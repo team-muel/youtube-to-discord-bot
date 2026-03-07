@@ -118,11 +118,13 @@ type ActionLogItem = {
 
 interface QuantCenterProps {
   user?: QuantUser | null;
+  onLogin?: () => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
 }
 
 const toPrettyJson = (value: unknown) => JSON.stringify(value, null, 2);
 
-export const QuantCenter = ({ user }: QuantCenterProps) => {
+export const QuantCenter = ({ user, onLogin, onLogout }: QuantCenterProps) => {
   const { tokens } = useMuelMotion();
   const motionCssVars = getMuelMotionCssVars(tokens) as CSSProperties;
   const [panel, setPanel] = useState<QuantPanelResponse | null>(null);
@@ -515,7 +517,19 @@ export const QuantCenter = ({ user }: QuantCenterProps) => {
 
   return (
     <div className="surface-page surface-bridge hud-grid research-page-shell" style={motionCssVars}>
-      <AppHeader fixed animated={false} actions={<TopSectionSwitcher isAuthenticated isPresetAdmin />} />
+      <AppHeader
+        fixed
+        animated={false}
+        actions={
+          <TopSectionSwitcher
+            isAuthenticated={Boolean(user)}
+            isPresetAdmin={Boolean(user?.isPresetAdmin)}
+            username={user?.username}
+            onLogin={onLogin ? () => void onLogin() : undefined}
+            onLogout={onLogout ? () => void onLogout() : undefined}
+          />
+        }
+      />
 
       <main className="section-wrap section-v-80 section-cluster dashboard-kpay-flow dashboard-main-shell">
         <MuelReveal as="section" className="io-reveal section-emphasis-shell" delayMultiplier={0}>
@@ -698,8 +712,11 @@ export const QuantCenter = ({ user }: QuantCenterProps) => {
                 adminAccessFlow: {
                   mode,
                   frontendGate: 'user.isPresetAdmin must be true',
-                  legacyBackend: 'user_roles.role = admin',
-                  mainBackend: 'RESEARCH_PRESET_ADMIN_USER_IDS + ADMIN_ALLOWLIST_TABLE',
+                  backendOrder: [
+                    'RESEARCH_PRESET_ADMIN_USER_IDS allowlist',
+                    'user_roles.role = admin',
+                    'ADMIN_ALLOWLIST_TABLE (optional)',
+                  ],
                 },
                 benchmarkSummary,
                 actionLogs: actionLogs.slice(0, 20),

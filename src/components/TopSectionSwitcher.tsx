@@ -8,6 +8,9 @@ interface TopSectionSwitcherProps {
   includeExternal?: boolean;
   isAuthenticated?: boolean;
   isPresetAdmin?: boolean;
+  username?: string | null;
+  onLogin?: () => void;
+  onLogout?: () => void;
 }
 
 export const TopSectionSwitcher: React.FC<TopSectionSwitcherProps> = ({
@@ -15,6 +18,9 @@ export const TopSectionSwitcher: React.FC<TopSectionSwitcherProps> = ({
   includeExternal = true,
   isAuthenticated = false,
   isPresetAdmin = false,
+  username,
+  onLogin,
+  onLogout,
 }) => {
   const location = useLocation();
   const items = (includeExternal ? sectionNavigationItems : sectionNavigationItems.filter((item) => !item.external)).filter((item) => {
@@ -75,6 +81,24 @@ export const TopSectionSwitcher: React.FC<TopSectionSwitcherProps> = ({
       <div className="kpay-locale" aria-label="language selector">
         <button type="button" className="kpay-locale-item is-active" aria-pressed="true">KOR</button>
         <button type="button" className="kpay-locale-item" aria-pressed="false">ENG</button>
+      </div>
+      <div className="kpay-auth-actions" aria-label="authentication actions">
+        {isAuthenticated ? (
+          <>
+            <span className="kpay-auth-user" title={username || 'authenticated user'}>
+              {username || 'Authenticated'}
+            </span>
+            {onLogout ? (
+              <button type="button" className="kpay-auth-button" onClick={onLogout}>
+                Logout
+              </button>
+            ) : null}
+          </>
+        ) : onLogin ? (
+          <button type="button" className="kpay-auth-button" onClick={onLogin}>
+            Login
+          </button>
+        ) : null}
       </div>
     </div>
   );

@@ -13,9 +13,11 @@ import { getMuelMotionCssVars } from '../lib/getMuelMotionCssVars';
 
 interface PlaygroundProps {
   user?: { id: string; username: string; avatar?: string | null; isPresetAdmin?: boolean } | null;
+  onLogin?: () => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
 }
 
-export const Playground = ({ user }: PlaygroundProps) => {
+export const Playground = ({ user, onLogin, onLogout }: PlaygroundProps) => {
   const { tokens } = useMuelMotion();
   const motionCssVars = getMuelMotionCssVars(tokens) as CSSProperties;
   const financeThemeCssVars = getFinanceThemeCssVars();
@@ -23,7 +25,19 @@ export const Playground = ({ user }: PlaygroundProps) => {
 
   return (
     <div className="surface-page surface-bridge hud-grid research-page-shell finance-shell" style={pageStyle}>
-      <AppHeader fixed animated={false} actions={<TopSectionSwitcher isAuthenticated={Boolean(user)} isPresetAdmin={Boolean(user?.isPresetAdmin)} />} />
+      <AppHeader
+        fixed
+        animated={false}
+        actions={
+          <TopSectionSwitcher
+            isAuthenticated={Boolean(user)}
+            isPresetAdmin={Boolean(user?.isPresetAdmin)}
+            username={user?.username}
+            onLogin={onLogin ? () => void onLogin() : undefined}
+            onLogout={onLogout ? () => void onLogout() : undefined}
+          />
+        }
+      />
 
       <main id="playground-main" className="section-wrap section-v-80 section-cluster dashboard-kpay-flow dashboard-main-shell">
         <MuelReveal as="section" className="finance-board finance-playground-shell" delayMultiplier={0}>

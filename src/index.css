@@ -1022,7 +1022,7 @@ body {
 .kpay-topbar-nav {
 	display: grid;
 	align-items: center;
-	grid-template-columns: minmax(3.8rem, 1fr) auto minmax(3.8rem, 1fr);
+	grid-template-columns: minmax(3.8rem, 1fr) auto minmax(3.8rem, 1fr) auto;
 	gap: 1rem;
 	width: 100%;
 }
@@ -1115,6 +1115,47 @@ body {
 .kpay-locale-item.is-active {
 	color: var(--color-text);
 	font-weight: 600;
+}
+
+.kpay-auth-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	justify-self: end;
+	margin-left: 0.5rem;
+}
+
+.kpay-auth-user {
+	font-size: 0.78rem;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: color-mix(in srgb, var(--color-text-muted) 88%, transparent);
+	max-width: 9rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.kpay-auth-button {
+	border: 1px solid color-mix(in srgb, var(--color-border) 92%, transparent);
+	background: color-mix(in srgb, var(--color-surface) 92%, white 8%);
+	color: var(--color-text);
+	font-size: 0.78rem;
+	line-height: 1.1;
+	padding: 0.35rem 0.58rem;
+	border-radius: 0.58rem;
+	cursor: pointer;
+	transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+
+.kpay-auth-button:hover {
+	border-color: color-mix(in srgb, var(--accent) 52%, var(--color-border));
+	background: color-mix(in srgb, var(--accent) 11%, var(--color-surface));
+}
+
+.kpay-auth-button:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--accent) 62%, transparent);
+	outline-offset: 2px;
 }
 
 .hero-badge {
@@ -2637,9 +2678,20 @@ body {
 		display: none;
 	}
 
+	.kpay-auth-actions {
+		margin-left: 0;
+	}
+
+	.kpay-auth-user {
+		display: none;
+	}
+
 	.kpay-topbar-nav {
-		display: flex;
-		justify-content: center;
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		justify-content: stretch;
+		gap: 0.75rem;
 	}
 
 }

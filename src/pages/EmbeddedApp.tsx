@@ -5,9 +5,11 @@ import { apiFetch, buildApiUrl } from '../config';
 
 interface EmbeddedAppProps {
   user?: { id: string; username: string; avatar?: string | null; isPresetAdmin?: boolean } | null;
+  onLogin?: () => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
 }
 
-export const EmbeddedApp = ({ user }: EmbeddedAppProps) => {
+export const EmbeddedApp = ({ user, onLogin, onLogout }: EmbeddedAppProps) => {
   const [authStatus, setAuthStatus] = useState<string | null>(null);
   const [sdkUser, setSdkUser] = useState<{ id: string; username: string; avatar: string | null } | null>(null);
 
@@ -71,7 +73,7 @@ export const EmbeddedApp = ({ user }: EmbeddedAppProps) => {
 
   return (
     <>
-      <ResearchPageLayout presetKey="embedded" user={user} />
+      <ResearchPageLayout presetKey="embedded" user={user} onLogin={onLogin} onLogout={onLogout} />
       {sdkUser && (
         <div style={{ position: 'fixed', bottom: 8, right: 8, background: '#eef', padding: 8, borderRadius: 6 }}>
           <strong>{sdkUser.username}</strong>

@@ -24,6 +24,7 @@
 - `GEMINI_API_KEY` : Gemini(또는 다른 AI) API 키 (선택)
 - `SESSION_SECRET` : JWT/세션 서명용 랜덤 문자열
 - `RESEARCH_PRESET_ADMIN_USER_IDS` : 리서치 프리셋 업서트 API 접근 허용 Discord 사용자 ID 목록(콤마 구분)
+- `ADMIN_ALLOWLIST_TABLE` : Supabase 관리자 allowlist 테이블명(선택, `user_id` 컬럼 필요)
 - `DISCORD_COMMAND_GUILD_ID` : 슬래시 명령을 특정 Discord 길드에 즉시 등록할 때 사용하는 길드 ID(선택)
 - `RESEARCH_STUDIO_URL` : Discord 프리셋 명령 성공 응답에 Studio 이력 패널 링크를 첨부할 때 사용하는 프론트 기준 URL(선택)
 - `RESEARCH_PRESET_MUTATION_COOLDOWN_MS` : Discord restore/upsert 계열 명령 중복 실행 방지 쿨다운(ms, 기본 8000, 선택)

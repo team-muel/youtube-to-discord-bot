@@ -20,7 +20,8 @@ import { getMuelMotionCssVars } from '../lib/getMuelMotionCssVars';
 
 interface DashboardProps {
   user?: { id: string; username: string; avatar?: string | null; isPresetAdmin?: boolean } | null;
-  onLogout?: () => void;
+  onLogin?: () => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
   content?: HubPageContent;
 }
 
@@ -88,7 +89,7 @@ const MetricCounter = ({ value, suffix, label, description }: MetricCounterProps
   );
 };
 
-export const Dashboard = ({ user, onLogout: _onLogout, content = dashboardContent }: DashboardProps) => {
+export const Dashboard = ({ user, onLogin, onLogout, content = dashboardContent }: DashboardProps) => {
   const { tokens } = useMuelMotion();
   const heroInviteRef = useRef<HTMLDivElement | null>(null);
   const [heroTitleTop, heroTitleBottom] = content.hero.title.split(' / ');
@@ -115,7 +116,19 @@ export const Dashboard = ({ user, onLogout: _onLogout, content = dashboardConten
 
   return (
     <div className="surface-page surface-bridge hud-grid research-page-shell" style={motionCssVars}>
-      <AppHeader fixed animated={false} actions={<TopSectionSwitcher isAuthenticated={Boolean(user)} isPresetAdmin={Boolean(user?.isPresetAdmin)} />} />
+      <AppHeader
+        fixed
+        animated={false}
+        actions={
+          <TopSectionSwitcher
+            isAuthenticated={Boolean(user)}
+            isPresetAdmin={Boolean(user?.isPresetAdmin)}
+            username={user?.username}
+            onLogin={onLogin ? () => void onLogin() : undefined}
+            onLogout={onLogout ? () => void onLogout() : undefined}
+          />
+        }
+      />
       <ScrollProgressBar progress={scrollProgress} />
 
       <main id="dashboard-main" className="section-wrap section-v-80 section-cluster dashboard-kpay-flow dashboard-main-shell">

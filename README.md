@@ -87,12 +87,20 @@ The frontend quant route (`/quant`) is admin-only. Admin detection is aligned to
 backend mode:
 
 - `moved/backend` style backend:
-  - admin source: Supabase `user_roles` table (`role='admin'`)
+  - admin source order:
+    1. `RESEARCH_PRESET_ADMIN_USER_IDS` allowlist
+    2. Supabase `user_roles` table (`role='admin'`)
+    3. `ADMIN_ALLOWLIST_TABLE` (optional)
   - frontend reads `isPresetAdmin` from `/api/auth/me`
 - latest `origin/main` style backend:
   - admin source: `RESEARCH_PRESET_ADMIN_USER_IDS` + `ADMIN_ALLOWLIST_TABLE`
   - frontend probes `/api/trading/runtime` to infer admin capability when
     `/api/auth/me` does not expose `isPresetAdmin`
+
+Web login UX:
+
+- top header now exposes explicit `Login`/`Logout` controls on web surfaces
+- embedded surfaces still support SDK auth via `/api/auth/sdk`
 
 Quant console verification points:
 
@@ -282,6 +290,7 @@ Discord 슬래시 명령(관리자 전용):
 관련 환경변수:
 
 - `RESEARCH_PRESET_ADMIN_USER_IDS` : Discord 사용자 ID allowlist
+- `ADMIN_ALLOWLIST_TABLE` (선택): Supabase 관리자 allowlist 테이블명 (`user_id` 컬럼 필요)
 - `DISCORD_COMMAND_GUILD_ID` (선택): 지정 길드에만 명령을 즉시 등록(개발/운영 검증 권장)
 - `RESEARCH_STUDIO_URL` (선택): Discord 명령 성공 응답에 Studio 이력 패널 링크를 포함할 때 사용하는 기준 URL (예: `https://your-frontend.example.com`)
 - `RESEARCH_PRESET_MUTATION_COOLDOWN_MS` (선택): Discord restore/upsert 계열 명령의 중복 실행 방지 쿨다운(ms, 기본 8000)

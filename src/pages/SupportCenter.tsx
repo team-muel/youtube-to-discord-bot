@@ -14,15 +14,29 @@ import { supportContent } from '../content/supportContent';
 
 interface SupportCenterProps {
   user?: { id: string; username: string; avatar?: string | null; isPresetAdmin?: boolean } | null;
+  onLogin?: () => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
 }
 
-export const SupportCenter: React.FC<SupportCenterProps> = ({ user }) => {
+export const SupportCenter: React.FC<SupportCenterProps> = ({ user, onLogin, onLogout }) => {
   const { tokens } = useMuelMotion();
   const motionCssVars = getMuelMotionCssVars(tokens) as CSSProperties;
 
   return (
     <div className="surface-page surface-bridge hud-grid research-page-shell" style={motionCssVars}>
-      <AppHeader fixed animated={false} actions={<TopSectionSwitcher isAuthenticated={Boolean(user)} isPresetAdmin={Boolean(user?.isPresetAdmin)} />} />
+      <AppHeader
+        fixed
+        animated={false}
+        actions={
+          <TopSectionSwitcher
+            isAuthenticated={Boolean(user)}
+            isPresetAdmin={Boolean(user?.isPresetAdmin)}
+            username={user?.username}
+            onLogin={onLogin ? () => void onLogin() : undefined}
+            onLogout={onLogout ? () => void onLogout() : undefined}
+          />
+        }
+      />
 
       <main className="section-wrap section-v-80 section-cluster dashboard-kpay-flow dashboard-main-shell">
         <MuelReveal as="section" className="io-reveal section-emphasis-shell" delayMultiplier={0}>

@@ -22,6 +22,10 @@ type AuthMeResponse = {
   csrfToken?: string | null;
 };
 
+type AuthUrlResponse = {
+  url: string;
+};
+
 const RouteBenchmarkTracker = () => {
   const location = useLocation();
 
@@ -101,6 +105,49 @@ export default function App() {
       setAuthLoading(false);
     }
   }, [probePresetAdmin]);
+
+  const handleLogin = useCallback(async () => {
+    try {
+      const redirectUri = `${window.location.origin}/auth/callback`;
+      const query = new URLSearchParams({ redirectUri });
+      const data = await apiFetchJson<AuthUrlResponse>(`/api/auth/url?${query.toString()}`);
+
+      if (!data.url) {
+        return;
+      }
+
+      const popupWidth = 560;
+      const popupHeight = 740;
+      const popupLeft = Math.max(0, Math.round(window.screenX + (window.outerWidth - popupWidth) / 2));
+      const popupTop = Math.max(0, Math.round(window.screenY + (window.outerHeight - popupHeight) / 2));
+
+      const popup = window.open(
+        data.url,
+        'muel_discord_oauth',
+        `popup=yes,width=${popupWidth},height=${popupHeight},left=${popupLeft},top=${popupTop}`,
+      );
+
+      if (!popup) {
+        window.location.href = data.url;
+        return;
+      }
+
+      popup.focus();
+
+      const watch = window.setInterval(() => {
+        if (!popup.closed) {
+          return;
+        }
+
+        window.clearInterval(watch);
+        void checkAuth();
+      }, 800);
+
+      window.setTimeout(() => window.clearInterval(watch), 120000);
+    } catch (error) {
+      console.error('Failed to start OAuth login flow:', error);
+    }
+  }, [checkAuth]);
 
   const handleLogout = useCallback(async () => {
     await apiFetch('/api/auth/logout', { method: 'POST' });
@@ -285,17 +332,17 @@ export default function App() {
       <RouteBenchmarkTracker />
       <RouteScrollReset />
       <Routes>
-        <Route path={ROUTES.home} element={<Dashboard user={user} onLogout={handleLogout} />} />
-        <Route path={ROUTES.playground} element={<Playground user={user} />} />
-        <Route path={ROUTES.inApp} element={<EmbeddedApp user={user} />} />
+        <Route path={ROUTES.home} element={<Dashboard user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
+        <Route path={ROUTES.playground} element={<Playground user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
+        <Route path={ROUTES.inApp} element={<EmbeddedApp user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
         <Route
           path={ROUTES.quant}
-          element={user?.isPresetAdmin ? <QuantCenter user={user} /> : <Navigate to={ROUTES.home} replace />}
+          element={user?.isPresetAdmin ? <QuantCenter user={user} onLogin={handleLogin} onLogout={handleLogout} /> : <Navigate to={ROUTES.home} replace />}
         />
         <Route path={ROUTES.embedded} element={<Navigate to={ROUTES.inApp} replace />} />
         <Route path={ROUTES.dashboard} element={<Navigate to={ROUTES.home} replace />} />
-        <Route path={ROUTES.studio} element={<StudioReference user={user} />} />
-        <Route path={ROUTES.support} element={<SupportCenter user={user} />} />
+        <Route path={ROUTES.studio} element={<StudioReference user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
+        <Route path={ROUTES.support} element={<SupportCenter user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
         <Route path="*" element={<Navigate to={ROUTES.home} replace />} />
       </Routes>
     </BrowserRouter>
