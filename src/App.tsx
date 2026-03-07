@@ -1,5 +1,5 @@
 ﻿import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useState, useEffect, useCallback, useLayoutEffect } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { API_BASE, ApiError, apiFetch, apiFetchJson } from './config';
 import { Dashboard, EmbeddedApp, Playground, QuantCenter, StudioReference, SupportCenter } from './pages';
 import { applySurfaceMode, getStoredSurfaceMode } from './surfaceMode';
@@ -25,6 +25,8 @@ type AuthMeResponse = {
 type AuthUrlResponse = {
   url: string;
 };
+
+type AuthFlowLevel = 'progress' | 'success' | 'error';
 
 const resolveOAuthCallbackUri = () => {
   const fallback = `${window.location.origin}/auth/callback`;
@@ -101,6 +103,29 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [bootProgress, setBootProgress] = useState(8);
+  const [authFlowMessage, setAuthFlowMessage] = useState<string | null>(null);
+  const [authFlowLevel, setAuthFlowLevel] = useState<AuthFlowLevel>('progress');
+  const authLoginIntentRef = useRef(false);
+  const authMessageTimerRef = useRef<number | null>(null);
+
+  const showAuthFlowMessage = useCallback((message: string | null, level: AuthFlowLevel, autoClearMs = 0) => {
+    if (authMessageTimerRef.current !== null) {
+      window.clearTimeout(authMessageTimerRef.current);
+      authMessageTimerRef.current = null;
+    }
+
+    setAuthFlowLevel(level);
+    setAuthFlowMessage(message);
+
+    if (!message || autoClearMs <= 0) {
+      return;
+    }
+
+    authMessageTimerRef.current = window.setTimeout(() => {
+      setAuthFlowMessage(null);
+      authMessageTimerRef.current = null;
+    }, autoClearMs);
+  }, []);
 
   const probePresetAdmin = useCallback(async () => {
     try {
@@ -126,41 +151,69 @@ export default function App() {
         ...data.user,
         isPresetAdmin: inferredAdmin,
       });
+
+      if (authLoginIntentRef.current) {
+        authLoginIntentRef.current = false;
+        showAuthFlowMessage(`${data.user.username} 계정으로 로그인되었습니다.`, 'success', 4500);
+      }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         setUser(null);
       }
       setUser(null);
+
+      if (authLoginIntentRef.current) {
+        authLoginIntentRef.current = false;
+        showAuthFlowMessage('로그인 세션 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.', 'error', 7000);
+      }
     } finally {
       setAuthLoading(false);
     }
-  }, [probePresetAdmin]);
+  }, [probePresetAdmin, showAuthFlowMessage]);
 
   const handleLogin = useCallback(async () => {
+    if (authLoginIntentRef.current) {
+      showAuthFlowMessage('이미 로그인 과정을 진행 중입니다.', 'progress', 3000);
+      return;
+    }
+
+    const popupWidth = 560;
+    const popupHeight = 740;
+    const popupLeft = Math.max(0, Math.round(window.screenX + (window.outerWidth - popupWidth) / 2));
+    const popupTop = Math.max(0, Math.round(window.screenY + (window.outerHeight - popupHeight) / 2));
+
+    // Open the popup synchronously to avoid popup blockers after async work.
+    const popup = window.open(
+      '',
+      'muel_discord_oauth',
+      `popup=yes,width=${popupWidth},height=${popupHeight},left=${popupLeft},top=${popupTop}`,
+    );
+
+    if (popup) {
+      popup.document.title = 'MUEL Discord Login';
+      popup.document.body.innerHTML = '<p style="font:14px sans-serif; padding: 16px;">Discord 인증 페이지를 준비하고 있습니다...</p>';
+    }
+
     try {
+      authLoginIntentRef.current = true;
+      showAuthFlowMessage('Discord 로그인 창을 준비하고 있습니다...', 'progress');
+
       const redirectUri = resolveOAuthCallbackUri();
       const query = new URLSearchParams({ redirectUri });
       const data = await apiFetchJson<AuthUrlResponse>(`/api/auth/url?${query.toString()}`);
 
       if (!data.url) {
-        return;
+        throw new Error('OAuth URL is empty');
       }
 
-      const popupWidth = 560;
-      const popupHeight = 740;
-      const popupLeft = Math.max(0, Math.round(window.screenX + (window.outerWidth - popupWidth) / 2));
-      const popupTop = Math.max(0, Math.round(window.screenY + (window.outerHeight - popupHeight) / 2));
-
-      const popup = window.open(
-        data.url,
-        'muel_discord_oauth',
-        `popup=yes,width=${popupWidth},height=${popupHeight},left=${popupLeft},top=${popupTop}`,
-      );
-
       if (!popup) {
+        showAuthFlowMessage('브라우저가 팝업을 차단해 현재 탭에서 인증을 진행합니다.', 'progress', 5000);
         window.location.href = data.url;
         return;
       }
+
+      popup.location.href = data.url;
+      showAuthFlowMessage('Discord 팝업에서 인증을 완료해 주세요.', 'progress');
 
       popup.focus();
 
@@ -170,14 +223,25 @@ export default function App() {
         }
 
         window.clearInterval(watch);
+        showAuthFlowMessage('팝업이 닫혀 인증 상태를 확인하고 있습니다...', 'progress');
         void checkAuth();
       }, 800);
 
       window.setTimeout(() => window.clearInterval(watch), 120000);
     } catch (error) {
+      authLoginIntentRef.current = false;
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+
+      if (error instanceof ApiError && error.status === 400) {
+        showAuthFlowMessage('로그인을 시작할 수 없습니다. 서버의 OAuth redirect allowlist 설정을 확인해 주세요.', 'error', 9000);
+      } else {
+        showAuthFlowMessage('로그인 창을 열지 못했습니다. 팝업 차단 또는 네트워크 상태를 확인해 주세요.', 'error', 9000);
+      }
       console.error('Failed to start OAuth login flow:', error);
     }
-  }, [checkAuth]);
+  }, [checkAuth, showAuthFlowMessage]);
 
   const handleLogout = useCallback(async () => {
     await apiFetch('/api/auth/logout', { method: 'POST' });
@@ -199,12 +263,21 @@ export default function App() {
       }
 
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        checkAuth();
+        showAuthFlowMessage('인증 완료 신호를 수신했습니다. 세션을 동기화합니다...', 'progress');
+        void checkAuth();
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [checkAuth]);
+  }, [checkAuth, showAuthFlowMessage]);
+
+  useEffect(() => {
+    return () => {
+      if (authMessageTimerRef.current !== null) {
+        window.clearTimeout(authMessageTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!authLoading) {
@@ -362,6 +435,11 @@ export default function App() {
     <BrowserRouter>
       <RouteBenchmarkTracker />
       <RouteScrollReset />
+      {authFlowMessage ? (
+        <div className={`auth-flow-toast is-${authFlowLevel}`} role={authFlowLevel === 'error' ? 'alert' : 'status'} aria-live="polite">
+          {authFlowMessage}
+        </div>
+      ) : null}
       <Routes>
         <Route path={ROUTES.home} element={<Dashboard user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
         <Route path={ROUTES.playground} element={<Playground user={user} onLogin={handleLogin} onLogout={handleLogout} />} />

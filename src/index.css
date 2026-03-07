@@ -1158,6 +1158,36 @@ body {
 	outline-offset: 2px;
 }
 
+.auth-flow-toast {
+	position: fixed;
+	right: 1rem;
+	bottom: 1rem;
+	z-index: 80;
+	max-width: min(28rem, calc(100vw - 2rem));
+	padding: 0.68rem 0.82rem;
+	border-radius: 0.8rem;
+	border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+	background: color-mix(in srgb, var(--color-surface) 94%, black 6%);
+	color: var(--color-text);
+	font-size: 0.84rem;
+	line-height: 1.45;
+	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+	backdrop-filter: blur(8px);
+	animation: invite-dock-in var(--muel-dock-duration, 240ms) var(--muel-ease, ease-out);
+}
+
+.auth-flow-toast.is-progress {
+	border-color: color-mix(in srgb, var(--accent) 52%, var(--color-border));
+}
+
+.auth-flow-toast.is-success {
+	border-color: color-mix(in srgb, #2fa86e 54%, var(--color-border));
+}
+
+.auth-flow-toast.is-error {
+	border-color: color-mix(in srgb, #df5f5f 54%, var(--color-border));
+}
+
 .hero-badge {
 	font-size: 0.7rem;
 	line-height: 1;
